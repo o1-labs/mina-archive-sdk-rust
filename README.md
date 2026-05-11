@@ -12,7 +12,7 @@ mina-archive-sdk = "0.0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
-MSRV: Rust 1.75.
+Tested on Rust stable.
 
 ## Quick start
 
