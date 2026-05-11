@@ -1,0 +1,31 @@
+[package]
+name = "mina-archive-sdk"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+description = "Rust SDK for interacting with Mina Archive Node GraphQL endpoints"
+repository = "https://github.com/o1-labs/mina-archive-sdk-rust"
+homepage = "https://github.com/o1-labs/mina-archive-sdk-rust"
+documentation = "https://docs.rs/mina-archive-sdk"
+readme = "README.md"
+authors = ["O(1) Labs <build@o1labs.org>"]
+keywords = ["mina", "blockchain", "graphql", "archive", "zkapp"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
+exclude = [".github/", "scripts/", "tests/integration_tests.rs"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["rt", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { version = "1", features = ["full", "test-util"] }

@@ -1,0 +1,8 @@
+target/
+# Libraries don't commit Cargo.lock — consumers generate their own.
+Cargo.lock
+Cargo.lock.bak
+*.log
+.env
+.env.local
+.DS_Store
