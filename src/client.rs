@@ -247,6 +247,28 @@ impl ArchiveClient {
             .await?;
         decode_field(&data, "blocks", "get_blocks")
     }
+
+    /// Find applied account updates that set a given verification key.
+    ///
+    /// The block range is required and the server caps its width, so walk a
+    /// wide history in pages rather than in one call.
+    pub async fn get_verification_key_updates(
+        &self,
+        input: VerificationKeyUpdateFilterInput,
+    ) -> Result<Vec<VerificationKeyUpdate>> {
+        let data = self
+            .execute_query(
+                queries::VERIFICATION_KEY_UPDATES_QUERY,
+                Some(json!({ "input": input })),
+                "get_verification_key_updates",
+            )
+            .await?;
+        decode_field(
+            &data,
+            "verificationKeyUpdates",
+            "get_verification_key_updates",
+        )
+    }
 }
 
 /// Options for [`ArchiveClient::get_blocks`]. All fields are optional.

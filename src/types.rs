@@ -112,6 +112,38 @@ impl ActionFilterOptionsInput {
     }
 }
 
+/// Filter for `verificationKeyUpdates`.
+///
+/// The block range is required, unlike the event and action filters: the
+/// server bounds the span by its configured `BLOCK_RANGE_SIZE`. `from` is
+/// inclusive and `to` is exclusive.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationKeyUpdateFilterInput {
+    pub verification_key_hash: String,
+    pub from: i64,
+    pub to: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<BlockStatusFilter>,
+}
+
+impl VerificationKeyUpdateFilterInput {
+    /// Search `[from, to)` for account updates that set `verification_key_hash`.
+    pub fn new(verification_key_hash: impl Into<String>, from: i64, to: i64) -> Self {
+        Self {
+            verification_key_hash: verification_key_hash.into(),
+            from,
+            to,
+            status: None,
+        }
+    }
+
+    pub fn status(mut self, v: BlockStatusFilter) -> Self {
+        self.status = Some(v);
+        self
+    }
+}
+
 /// Filter blocks by height, date, or canonical status.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BlockQueryInput {
@@ -194,6 +226,19 @@ pub struct ActionOutput {
     pub transaction_info: Option<TransactionInfo>,
     pub action_data: Option<Vec<Option<ActionData>>>,
     pub action_state: ActionStates,
+}
+
+/// An applied account update that set a verification key.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationKeyUpdate {
+    pub account_update_id: String,
+    /// The account whose verification key was set.
+    pub address: String,
+    pub token_id: String,
+    pub verification_key_hash: String,
+    pub block_info: BlockInfo,
+    pub transaction_info: TransactionInfo,
 }
 
 #[derive(Debug, Clone, Deserialize)]
