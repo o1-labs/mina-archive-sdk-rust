@@ -11,9 +11,14 @@ use std::time::Duration;
 use mina_archive_sdk::{
     ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
     ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
+    VerificationKeyUpdateFilterInput,
 };
 
 const FIXTURE_ADDRESS: &str = "B62qiaEMrWiYdK7LcJ2ScdMyG8LzUxi7yaw17XvBD34on7UKfhAkRML";
+
+/// The single verification key in the upstream sample archive dump.
+const FIXTURE_VERIFICATION_KEY_HASH: &str =
+    "330109536550383627416201330124291596191867681867265169258470531313815097966";
 
 fn client() -> ArchiveClient {
     let uri = std::env::var("ARCHIVE_GRAPHQL_URI")
@@ -91,5 +96,21 @@ async fn blocks_desc_returns_ordered_results() {
             blocks[0].block_height >= blocks[1].block_height,
             "DESC sort honored"
         );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires a running Archive-Node-API server (ARCHIVE_GRAPHQL_URI)"]
+async fn verification_key_updates_against_fixture_key() {
+    let updates = client()
+        .get_verification_key_updates(VerificationKeyUpdateFilterInput::new(
+            FIXTURE_VERIFICATION_KEY_HASH,
+            1,
+            1000,
+        ))
+        .await
+        .unwrap();
+    for update in &updates {
+        assert_eq!(update.verification_key_hash, FIXTURE_VERIFICATION_KEY_HASH);
     }
 }

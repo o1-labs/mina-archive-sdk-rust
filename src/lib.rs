@@ -76,5 +76,6 @@ pub use types::{
     ActionData, ActionFilterOptionsInput, ActionOutput, ActionStates, Block, BlockInfo,
     BlockQueryInput, BlockSortBy, BlockStatusFilter, BlockTransactions, EventData,
     EventFilterOptionsInput, EventOutput, FeeTransfer, MaxBlockHeightInfo, NetworkStateOutput,
-    TransactionInfo, UserCommand, ZkAppCommand,
+    TransactionInfo, UserCommand, VerificationKeyUpdate, VerificationKeyUpdateFilterInput,
+    ZkAppCommand,
 };

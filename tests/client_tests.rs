@@ -5,6 +5,7 @@ use std::time::Duration;
 use mina_archive_sdk::{
     ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
     ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
+    VerificationKeyUpdateFilterInput,
 };
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -142,6 +143,72 @@ async fn get_blocks_passes_filters() {
         .await
         .unwrap();
     assert!(blocks.is_empty());
+}
+
+#[tokio::test]
+async fn get_verification_key_updates_happy_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {
+                "verificationKeyUpdates": [{
+                    "accountUpdateId": "42",
+                    "address": "B62qtest",
+                    "tokenId": "wSHV2S4qX9jFsLjQo8r1BsMLH2ZRKsZx6EJd1sbozGPieEC4Jf",
+                    "verificationKeyHash": "3301095365503836274162013301242915961918676818672",
+                    "blockInfo": {
+                        "height": 100,
+                        "stateHash": "sh",
+                        "parentHash": "ph",
+                        "ledgerHash": "lh",
+                        "chainStatus": "canonical",
+                        "timestamp": "0",
+                        "globalSlotSinceHardfork": 0,
+                        "globalSlotSinceGenesis": 0,
+                        "distanceFromMaxBlockHeight": 1,
+                    },
+                    "transactionInfo": {
+                        "status": "applied",
+                        "hash": "txhash",
+                        "memo": "",
+                        "authorizationKind": "Proof",
+                        "sequenceNumber": 0,
+                        "zkappAccountUpdateIds": [42],
+                    },
+                }],
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let updates = client
+        .get_verification_key_updates(VerificationKeyUpdateFilterInput::new(
+            "3301095365503836274162013301242915961918676818672",
+            1,
+            1000,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].address, "B62qtest");
+    assert_eq!(updates[0].block_info.height, 100);
+}
+
+#[tokio::test]
+async fn verification_key_filter_serializes_required_range() {
+    let input =
+        VerificationKeyUpdateFilterInput::new("vk", 10, 20).status(BlockStatusFilter::Canonical);
+    let json = serde_json::to_value(&input).unwrap();
+    assert_eq!(json["verificationKeyHash"], "vk");
+    assert_eq!(json["from"], 10);
+    assert_eq!(json["to"], 20);
+    assert_eq!(json["status"], "CANONICAL");
+
+    // `status` is the only optional member; it disappears when unset.
+    let bare = serde_json::to_value(VerificationKeyUpdateFilterInput::new("vk", 1, 2)).unwrap();
+    assert!(bare.get("status").is_none());
 }
 
 #[tokio::test]
