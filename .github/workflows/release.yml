@@ -43,7 +43,11 @@ jobs:
       - name: Verify tag matches Cargo.toml version
         run: |
           tag="${GITHUB_REF_NAME#v}"
-          pkg=$(cargo pkgid | sed -E 's/.*#([^#]+)$/\1/')
+          # Read the version from cargo metadata rather than parsing pkgid.
+          # pkgid's tail is `<name>@<version>` whenever the crate name differs
+          # from its directory, so the old `s/.*#([^#]+)$/\1/` yielded
+          # `mina-archive-sdk@1.0.0` and failed the compare (run 34644219621).
+          pkg=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
           if [ "$tag" != "$pkg" ]; then
             echo "tag $GITHUB_REF_NAME does not match Cargo.toml $pkg"
             exit 1
