@@ -1,5 +1,10 @@
 # mina-archive-sdk
 
+[![CI](https://github.com/o1-labs/mina-archive-sdk-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/o1-labs/mina-archive-sdk-rust/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/mina-archive-sdk.svg?logo=rust)](https://crates.io/crates/mina-archive-sdk)
+[![docs.rs](https://img.shields.io/docsrs/mina-archive-sdk?logo=docsdotrs)](https://docs.rs/mina-archive-sdk)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
 Rust SDK for [Mina Protocol's Archive Node](https://github.com/o1-labs/Archive-Node-API) GraphQL endpoint.
 
 Companion to the daemon-targeting [`mina-sdk`](https://crates.io/crates/mina-sdk) crate. This crate targets the separate **archive** endpoint defined by `o1-labs/Archive-Node-API` (events, actions, blocks, network state).
