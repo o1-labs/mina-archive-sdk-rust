@@ -6,6 +6,7 @@ use tracing::{debug, warn};
 
 use crate::error::{Error, GraphqlErrorEntry, Result};
 use crate::queries;
+use crate::response::Response;
 use crate::types::*;
 
 /// Configuration for the Archive Node client.
@@ -109,6 +110,33 @@ impl ArchiveClient {
         variables: Option<Value>,
         query_name: &str,
     ) -> Result<Value> {
+        let resp = self
+            .execute_query_with_errors(query, variables, query_name)
+            .await?;
+        if !resp.errors.is_empty() {
+            return Err(Error::Graphql {
+                query_name: query_name.to_string(),
+                status: resp.status,
+                messages: resp.messages(),
+                errors: resp.errors,
+            });
+        }
+        Ok(resp.data.unwrap_or(Value::Object(Default::default())))
+    }
+
+    /// Like [`ArchiveClient::execute_query`], but keeps a partial `data`
+    /// payload that arrived alongside an `errors` array.
+    ///
+    /// HTTP 200 carrying both is a normal GraphQL outcome for field-level
+    /// nulls, and is reachable here because the root lists and most of their
+    /// fields are nullable. The strict methods report that as a total failure
+    /// and the successful rows are unrecoverable; this one returns both.
+    pub async fn execute_query_with_errors(
+        &self,
+        query: &str,
+        variables: Option<Value>,
+        query_name: &str,
+    ) -> Result<Response<Value>> {
         let mut payload = json!({ "query": query });
         if let Some(vars) = variables {
             payload["variables"] = vars;
@@ -234,23 +262,35 @@ impl ArchiveClient {
                                     .with_lifted_code()
                             })
                             .collect();
-                        let messages = entries
-                            .iter()
-                            .map(|e| e.message.as_str())
-                            .collect::<Vec<_>>()
-                            .join("; ");
-                        return Err(Error::Graphql {
-                            query_name: query_name.to_string(),
-                            status,
-                            messages,
+                        // A partial `data` alongside `errors` is a normal
+                        // GraphQL outcome. Hand back both and let the caller
+                        // decide; the strict wrapper turns it into an error.
+                        let data = body.get("data").filter(|d| !d.is_null()).cloned();
+                        if data.is_none() {
+                            let messages = entries
+                                .iter()
+                                .map(|e| e.message.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            return Err(Error::Graphql {
+                                query_name: query_name.to_string(),
+                                status,
+                                messages,
+                                errors: entries,
+                            });
+                        }
+                        return Ok(Response {
+                            data,
                             errors: entries,
+                            status,
                         });
                     }
 
-                    return Ok(body
-                        .get("data")
-                        .cloned()
-                        .unwrap_or(Value::Object(Default::default())));
+                    return Ok(Response {
+                        data: body.get("data").filter(|d| !d.is_null()).cloned(),
+                        errors: Vec::new(),
+                        status,
+                    });
                 }
                 Err(e) => {
                     warn!(query_name, attempt, error = %e, "transport error");
@@ -392,6 +432,104 @@ fn decode_field<T: DeserializeOwned>(data: &Value, field: &str, query_name: &str
         query_name: query_name.to_string(),
         source,
     })
+}
+
+impl ArchiveClient {
+    /// Run a typed query, keeping a partial `data` payload that arrived
+    /// alongside an `errors` array.
+    async fn typed_with_errors<T: DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: Option<Value>,
+        query_name: &str,
+        field: &str,
+    ) -> Result<Response<T>> {
+        let resp = self
+            .execute_query_with_errors(query, variables, query_name)
+            .await?;
+        let decoded = match &resp.data {
+            Some(data) => Some(decode_field::<T>(data, field, query_name)?),
+            None => None,
+        };
+        Ok(Response {
+            data: decoded,
+            errors: resp.errors,
+            status: resp.status,
+        })
+    }
+
+    /// [`ArchiveClient::get_events`], keeping partial data alongside errors.
+    pub async fn get_events_with_errors(
+        &self,
+        input: EventFilterOptionsInput,
+    ) -> Result<Response<Vec<EventOutput>>> {
+        self.typed_with_errors(
+            queries::EVENTS_QUERY,
+            Some(json!({ "input": input })),
+            "get_events",
+            "events",
+        )
+        .await
+    }
+
+    /// [`ArchiveClient::get_actions`], keeping partial data alongside errors.
+    pub async fn get_actions_with_errors(
+        &self,
+        input: ActionFilterOptionsInput,
+    ) -> Result<Response<Vec<ActionOutput>>> {
+        self.typed_with_errors(
+            queries::ACTIONS_QUERY,
+            Some(json!({ "input": input })),
+            "get_actions",
+            "actions",
+        )
+        .await
+    }
+
+    /// [`ArchiveClient::get_blocks`], keeping partial data alongside errors.
+    pub async fn get_blocks_with_errors(
+        &self,
+        opts: GetBlocksOptions,
+    ) -> Result<Response<Vec<Block>>> {
+        self.typed_with_errors(
+            queries::BLOCKS_QUERY,
+            Some(json!({
+                "query": opts.query,
+                "limit": opts.limit,
+                "sortBy": opts.sort_by,
+            })),
+            "get_blocks",
+            "blocks",
+        )
+        .await
+    }
+
+    /// [`ArchiveClient::get_network_state`], keeping partial data alongside
+    /// errors.
+    pub async fn get_network_state_with_errors(&self) -> Result<Response<NetworkStateOutput>> {
+        self.typed_with_errors(
+            queries::NETWORK_STATE_QUERY,
+            None,
+            "get_network_state",
+            "networkState",
+        )
+        .await
+    }
+
+    /// [`ArchiveClient::get_verification_key_updates`], keeping partial data
+    /// alongside errors.
+    pub async fn get_verification_key_updates_with_errors(
+        &self,
+        input: VerificationKeyUpdateFilterInput,
+    ) -> Result<Response<Vec<VerificationKeyUpdate>>> {
+        self.typed_with_errors(
+            queries::VERIFICATION_KEY_UPDATES_QUERY,
+            Some(json!({ "input": input })),
+            "get_verification_key_updates",
+            "verificationKeyUpdates",
+        )
+        .await
+    }
 }
 
 /// The three rate-limit headers the server sends alongside a 429.
