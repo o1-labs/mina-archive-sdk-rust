@@ -154,7 +154,14 @@ impl ArchiveClient {
                         }
                     };
 
-                    if let Some(errors) = body.get("errors").and_then(|e| e.as_array()) {
+                    // An empty `errors` array is not an error. Testing only for the
+                    // array's presence turned a perfectly good response into a failure
+                    // whose message was the empty string (#11).
+                    if let Some(errors) = body
+                        .get("errors")
+                        .and_then(|e| e.as_array())
+                        .filter(|arr| !arr.is_empty())
+                    {
                         let entries: Vec<GraphqlErrorEntry> = errors
                             .iter()
                             .map(|e| GraphqlErrorEntry {
