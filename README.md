@@ -145,6 +145,8 @@ let client = ArchiveClient::new("https://archive.example/");
 match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
     Ok(events) => println!("{} groups", events.len()),
     Err(Error::Graphql { messages, .. }) => eprintln!("server rejected: {messages}"),
+    Err(Error::RateLimited { retry_after, .. }) => eprintln!("slow down: retry after {retry_after:?}"),
+    Err(Error::UnexpectedStatus { status, .. }) => eprintln!("unexpected HTTP {status}"),
     Err(Error::Connection { attempts, .. }) => eprintln!("unreachable after {attempts} tries"),
     Err(Error::MissingField { field, .. }) => eprintln!("schema mismatch: {field}"),
     Err(e) => eprintln!("error: {e}"),
@@ -152,6 +154,21 @@ match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 # Ok(())
 # }
 ```
+
+#### Rate limiting and HTTP status
+
+Every GraphQL-level error from this API arrives as **HTTP 200** with a populated
+`errors` array — `extensions.status` is a payload field, not the HTTP status. HTTP 429
+is the only non-200 the API emits, which makes it unusually informative: it
+unambiguously means "slow down", and it is the one case where retrying the identical
+request is correct.
+
+The SDK retries 429 automatically, waiting for the interval the server names in
+`retry-after`. If the retries run out, `Error::RateLimited` carries `retry_after`,
+`limit` and `remaining` so a caller can schedule its own back-off.
+
+Any other non-2xx becomes `Error::UnexpectedStatus`, which names the status rather than
+reporting a decode failure. That is what a URL ending in `/graphql` produces.
 
 #### Contract error codes
 

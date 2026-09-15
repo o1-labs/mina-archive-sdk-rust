@@ -4,11 +4,45 @@ use std::fmt;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The GraphQL endpoint returned one or more errors. Not retried.
+    ///
+    /// Note `status` is almost always 200: the API answers every GraphQL-level
+    /// error with HTTP 200 and a populated `errors` array. `extensions.status`
+    /// is a payload field, not the HTTP status.
     #[error("GraphQL error in {query_name}: {messages}")]
     Graphql {
         query_name: String,
+        status: reqwest::StatusCode,
         messages: String,
         errors: Vec<GraphqlErrorEntry>,
+    },
+
+    /// The server's rate limiter rejected the request with HTTP 429.
+    ///
+    /// This is the **only** non-200 the API emits under normal operation, so
+    /// unlike most 4xx it unambiguously means "slow down", and it is the one
+    /// case where retrying the identical request is correct.
+    #[error("rate limited on {query_name}: {messages}")]
+    RateLimited {
+        query_name: String,
+        /// From the `retry-after` header, when the server sends one.
+        retry_after: Option<std::time::Duration>,
+        /// From `x-ratelimit-limit`.
+        limit: Option<u64>,
+        /// From `x-ratelimit-remaining`.
+        remaining: Option<u64>,
+        messages: String,
+    },
+
+    /// A non-2xx response that is not GraphQL-shaped.
+    ///
+    /// The usual cause is a URL pointing somewhere the server does not serve:
+    /// the endpoint is the root path `/`, and `/graphql` returns 404 with an
+    /// HTML or plain-text body.
+    #[error("unexpected HTTP {status} in {query_name}: {body}")]
+    UnexpectedStatus {
+        query_name: String,
+        status: reqwest::StatusCode,
+        body: String,
     },
 
     /// Failed to connect after exhausting all retry attempts.

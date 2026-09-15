@@ -132,7 +132,12 @@ impl ArchiveClient {
                 .await
             {
                 Ok(resp) => {
+                    // Read the status and headers before the body is consumed;
+                    // resp.json() takes ownership and used to take the only
+                    // record of what the server actually said with it (#8).
                     let status = resp.status();
+                    let rate = RateLimitHeaders::from(resp.headers());
+
                     if status.is_server_error() || status == reqwest::StatusCode::REQUEST_TIMEOUT {
                         warn!(query_name, attempt, %status, "retryable HTTP error");
                         last_err = Some(resp.error_for_status().unwrap_err());
@@ -140,6 +145,50 @@ impl ArchiveClient {
                             tokio::time::sleep(self.config.retry_delay).await;
                         }
                         continue;
+                    }
+
+                    // 429 is the only non-200 the API emits under normal
+                    // operation, so it unambiguously means "slow down" and is
+                    // the one status where retrying unchanged is correct.
+                    // Honour retry-after when the server sends it.
+                    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                        let text = resp.text().await.unwrap_or_default();
+                        let messages = graphql_messages_from_body(&text)
+                            .unwrap_or_else(|| "Too many requests.".to_string());
+                        warn!(query_name, attempt, ?rate.retry_after, "rate limited");
+
+                        if attempt < self.config.retries {
+                            tokio::time::sleep(rate.retry_after.unwrap_or(self.config.retry_delay))
+                                .await;
+                            continue;
+                        }
+                        return Err(Error::RateLimited {
+                            query_name: query_name.to_string(),
+                            retry_after: rate.retry_after,
+                            limit: rate.limit,
+                            remaining: rate.remaining,
+                            messages,
+                        });
+                    }
+
+                    // Any other non-2xx is not retried, and is reported by its
+                    // status rather than as a decode or missing-field failure.
+                    if !status.is_success() {
+                        let text = resp.text().await.unwrap_or_default();
+                        if let Some(messages) = graphql_messages_from_body(&text) {
+                            let errors = graphql_entries_from_body(&text);
+                            return Err(Error::Graphql {
+                                query_name: query_name.to_string(),
+                                status,
+                                messages,
+                                errors,
+                            });
+                        }
+                        return Err(Error::UnexpectedStatus {
+                            query_name: query_name.to_string(),
+                            status,
+                            body: truncate(&text, 200),
+                        });
                     }
 
                     let body: Value = match resp.json().await {
@@ -192,6 +241,7 @@ impl ArchiveClient {
                             .join("; ");
                         return Err(Error::Graphql {
                             query_name: query_name.to_string(),
+                            status,
                             messages,
                             errors: entries,
                         });
@@ -342,4 +392,72 @@ fn decode_field<T: DeserializeOwned>(data: &Value, field: &str, query_name: &str
         query_name: query_name.to_string(),
         source,
     })
+}
+
+/// The three rate-limit headers the server sends alongside a 429.
+#[derive(Debug, Default)]
+struct RateLimitHeaders {
+    retry_after: Option<Duration>,
+    limit: Option<u64>,
+    remaining: Option<u64>,
+}
+
+impl From<&reqwest::header::HeaderMap> for RateLimitHeaders {
+    fn from(headers: &reqwest::header::HeaderMap) -> Self {
+        let num =
+            |name: &str| -> Option<u64> { headers.get(name)?.to_str().ok()?.trim().parse().ok() };
+        Self {
+            // The server sends delay-seconds. The HTTP-date form of
+            // retry-after is legal but is not what this API emits, so an
+            // unparseable value yields None rather than a wrong duration.
+            retry_after: num("retry-after").map(Duration::from_secs),
+            limit: num("x-ratelimit-limit"),
+            remaining: num("x-ratelimit-remaining"),
+        }
+    }
+}
+
+/// Join the `message` fields of a GraphQL-shaped body, if it is one.
+///
+/// Returns None when the body is not JSON, or carries no non-empty `errors`
+/// array — which is how a 404 HTML page is told apart from a real GraphQL
+/// response that happens to arrive with a non-200 status.
+fn graphql_messages_from_body(text: &str) -> Option<String> {
+    let entries = graphql_entries_from_body(text);
+    if entries.is_empty() {
+        return None;
+    }
+    Some(
+        entries
+            .iter()
+            .map(|e| e.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
+}
+
+/// Decode the `errors` array of a GraphQL-shaped body, or an empty vector.
+fn graphql_entries_from_body(text: &str) -> Vec<GraphqlErrorEntry> {
+    serde_json::from_str::<Value>(text)
+        .ok()
+        .as_ref()
+        .and_then(|v| v.get("errors"))
+        .and_then(|e| e.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| serde_json::from_value::<GraphqlErrorEntry>(e.clone()).ok())
+                .map(GraphqlErrorEntry::with_lifted_code)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Shorten a body for inclusion in an error message.
+fn truncate(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max).collect();
+    format!("{head}…")
 }
