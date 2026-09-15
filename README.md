@@ -26,7 +26,7 @@ use mina_archive_sdk::{ArchiveClient, BlockStatusFilter, EventFilterOptionsInput
 
 #[tokio::main]
 async fn main() -> mina_archive_sdk::Result<()> {
-    let client = ArchiveClient::new("https://archive.example/graphql");
+    let client = ArchiveClient::new("https://archive.example/");
 
     let events = client.get_events(
         EventFilterOptionsInput::for_address("B62q...")
@@ -43,6 +43,10 @@ async fn main() -> mina_archive_sdk::Result<()> {
     Ok(())
 }
 ```
+
+> **The endpoint is the root path.** Archive-Node-API serves GraphQL at `/`, not
+> `/graphql`. Pass the base URL as-is — the SDK never appends a path, so a URL
+> ending in `/graphql` reaches a route the server does not serve and returns 404.
 
 ## API
 
@@ -65,7 +69,7 @@ use std::time::Duration;
 use mina_archive_sdk::{ArchiveClient, ClientConfig};
 
 let client = ArchiveClient::with_config(ClientConfig {
-    graphql_uri: "https://archive.example/graphql".to_string(),
+    graphql_uri: "https://archive.example/".to_string(),
     retries: 5,
     retry_delay: Duration::from_secs(10),
     timeout: Duration::from_secs(60),
@@ -94,7 +98,7 @@ All fallible operations return `Result<T>` over the `Error` enum. Match on varia
 use mina_archive_sdk::{ArchiveClient, Error, EventFilterOptionsInput};
 
 # async fn example() -> mina_archive_sdk::Result<()> {
-let client = ArchiveClient::new("https://archive.example/graphql");
+let client = ArchiveClient::new("https://archive.example/");
 match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
     Ok(events) => println!("{} groups", events.len()),
     Err(Error::Graphql { messages, .. }) => eprintln!("server rejected: {messages}"),
@@ -109,7 +113,7 @@ match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 ## Examples
 
 ```sh
-ARCHIVE_GRAPHQL_URI=https://archive.example/graphql cargo run --example network_state
+ARCHIVE_GRAPHQL_URI=https://archive.example/ cargo run --example network_state
 ```
 
 See `examples/`:

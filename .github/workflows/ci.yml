@@ -22,4 +22,7 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --all-targets
       - run: cargo test --lib --tests
+      # Doctests are what carry the documented endpoint URLs. `--lib --tests`
+      # skips them, which is how a wrong URL survived in rustdoc examples (#7).
+      - run: cargo test --doc
       - run: cargo doc --no-deps
