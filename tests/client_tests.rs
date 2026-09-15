@@ -402,3 +402,72 @@ async fn non_empty_errors_array_still_fails() {
         "unexpected error: {err}"
     );
 }
+
+/// The API attaches `extensions.code` to every domain error and keeps message
+/// text deliberately minimal, so the code is the intended discriminator (#9).
+/// All of it used to be discarded except the message string.
+#[tokio::test]
+async fn graphql_error_carries_extensions_path_and_locations() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{
+                "message": "Block range exceeds maximum",
+                "path": ["events"],
+                "locations": [{ "line": 2, "column": 3 }],
+                "extensions": { "code": "BLOCK_RANGE_ERROR", "status": 400 },
+            }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client
+        .get_events(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.graphql_codes(), vec!["BLOCK_RANGE_ERROR"]);
+    assert!(err.has_graphql_code("BLOCK_RANGE_ERROR"));
+    assert!(!err.has_graphql_code("RATE_LIMITED"));
+
+    match &err {
+        mina_archive_sdk::Error::Graphql { errors, .. } => {
+            let e = &errors[0];
+            assert_eq!(e.code.as_deref(), Some("BLOCK_RANGE_ERROR"));
+            assert_eq!(e.path.as_ref().unwrap()[0], json!("events"));
+            assert_eq!(e.locations.as_ref().unwrap()[0]["line"], json!(2));
+            // The whole extensions object is kept, not just the code.
+            assert_eq!(e.extensions.as_ref().unwrap()["status"], json!(400));
+        }
+        other => panic!("expected Error::Graphql, got {other:?}"),
+    }
+}
+
+/// The server runs `maskedErrors: { isDev: false }`, so an unexpected error
+/// arrives with a generic message and NO extensions. `code` must stay optional
+/// and this path must keep working.
+#[tokio::test]
+async fn masked_error_without_extensions_still_decodes() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{ "message": "Unexpected error." }],
+            "data": null,
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state().await.unwrap_err();
+
+    assert!(err.graphql_codes().is_empty(), "a masked error has no code");
+    assert!(err.to_string().contains("Unexpected error."));
+    match &err {
+        mina_archive_sdk::Error::Graphql { errors, .. } => {
+            assert!(errors[0].code.is_none());
+            assert!(errors[0].extensions.is_none());
+        }
+        other => panic!("expected Error::Graphql, got {other:?}"),
+    }
+}

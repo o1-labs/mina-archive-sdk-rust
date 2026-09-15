@@ -162,14 +162,27 @@ impl ArchiveClient {
                         .and_then(|e| e.as_array())
                         .filter(|arr| !arr.is_empty())
                     {
+                        // Deserialise the whole entry rather than hand-picking
+                        // `message`, so `extensions.code`, `path` and `locations`
+                        // survive (#9). A masked error carries no extensions at
+                        // all, and an entry that will not deserialise still has to
+                        // produce something, so fall back to the message alone.
                         let entries: Vec<GraphqlErrorEntry> = errors
                             .iter()
-                            .map(|e| GraphqlErrorEntry {
-                                message: e
-                                    .get("message")
-                                    .and_then(|m| m.as_str())
-                                    .unwrap_or("unknown error")
-                                    .to_string(),
+                            .map(|e| {
+                                serde_json::from_value::<GraphqlErrorEntry>(e.clone())
+                                    .unwrap_or_else(|_| GraphqlErrorEntry {
+                                        message: e
+                                            .get("message")
+                                            .and_then(|m| m.as_str())
+                                            .unwrap_or("unknown error")
+                                            .to_string(),
+                                        code: None,
+                                        path: None,
+                                        locations: None,
+                                        extensions: None,
+                                    })
+                                    .with_lifted_code()
                             })
                             .collect();
                         let messages = entries
