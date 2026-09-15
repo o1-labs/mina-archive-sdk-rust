@@ -350,3 +350,55 @@ fn rejects_retries_zero() {
         timeout: Duration::from_secs(1),
     });
 }
+
+/// An empty `errors` array is not an error in GraphQL (#11). Any proxy or
+/// gateway that normalises the envelope to always carry `"errors": []` used to
+/// turn every successful call into a failure with an empty message.
+#[tokio::test]
+async fn empty_errors_array_is_not_a_failure() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [],
+            "data": {
+                "networkState": {
+                    "maxBlockHeight": {
+                        "canonicalMaxBlockHeight": 1000,
+                        "pendingMaxBlockHeight": 1010,
+                    },
+                },
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let state = client
+        .get_network_state()
+        .await
+        .expect("an empty errors array must not fail the call");
+    assert_eq!(
+        state.max_block_height.unwrap().canonical_max_block_height,
+        1000
+    );
+}
+
+/// A non-empty `errors` array must still fail, so the fix above cannot be
+/// mistaken for "ignore the errors key".
+#[tokio::test]
+async fn non_empty_errors_array_still_fails() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{ "message": "Block range exceeds maximum" }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state().await.unwrap_err();
+    assert!(
+        err.to_string().contains("Block range exceeds maximum"),
+        "unexpected error: {err}"
+    );
+}
