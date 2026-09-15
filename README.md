@@ -145,6 +145,8 @@ let client = ArchiveClient::new("https://archive.example/");
 match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
     Ok(events) => println!("{} groups", events.len()),
     Err(Error::Graphql { messages, .. }) => eprintln!("server rejected: {messages}"),
+    Err(Error::RateLimited { retry_after, .. }) => eprintln!("slow down: retry after {retry_after:?}"),
+    Err(Error::UnexpectedStatus { status, .. }) => eprintln!("unexpected HTTP {status}"),
     Err(Error::Connection { attempts, .. }) => eprintln!("unreachable after {attempts} tries"),
     Err(Error::MissingField { field, .. }) => eprintln!("schema mismatch: {field}"),
     Err(e) => eprintln!("error: {e}"),
@@ -152,6 +154,81 @@ match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 # Ok(())
 # }
 ```
+
+#### Partial results
+
+A response can legally carry **both** `data` and `errors` — the root lists and most of
+their fields are nullable, so the server nulls the field that failed and reports it
+alongside the rows that succeeded.
+
+The methods above are strict: they treat that as a failure. When you would rather keep
+what did arrive, use the `*_with_errors` family, which returns a `Response<T>`:
+
+```rust,no_run
+# async fn example(client: &mina_archive_sdk::ArchiveClient) -> mina_archive_sdk::Result<()> {
+use mina_archive_sdk::EventFilterOptionsInput;
+
+let resp = client
+    .get_events_with_errors(EventFilterOptionsInput::for_address("B62q..."))
+    .await?;
+
+if resp.is_partial() {
+    eprintln!("partial result: {}", resp.messages());
+}
+for group in resp.data.unwrap_or_default() {
+    // the rows that did arrive
+    let _ = group;
+}
+# Ok(())
+# }
+```
+
+`data: null` with errors is a total failure on both paths, not a partial one.
+
+#### Rate limiting and HTTP status
+
+Every GraphQL-level error from this API arrives as **HTTP 200** with a populated
+`errors` array — `extensions.status` is a payload field, not the HTTP status. HTTP 429
+is the only non-200 the API emits, which makes it unusually informative: it
+unambiguously means "slow down", and it is the one case where retrying the identical
+request is correct.
+
+The SDK retries 429 automatically, waiting for the interval the server names in
+`retry-after`. If the retries run out, `Error::RateLimited` carries `retry_after`,
+`limit` and `remaining` so a caller can schedule its own back-off.
+
+Any other non-2xx becomes `Error::UnexpectedStatus`, which names the status rather than
+reporting a decode failure. That is what a URL ending in `/graphql` produces.
+
+#### Contract error codes
+
+The API attaches `extensions.code` to every domain error and keeps the message text
+deliberately minimal, so the **code is the intended discriminator** — do not match on
+English message strings:
+
+| Code | Meaning |
+| --- | --- |
+| `BLOCK_RANGE_ERROR` | The requested range exceeds `BLOCK_RANGE_SIZE`. Narrow it; never retry unchanged. |
+| `ACTION_STATE_NOT_FOUND` | The action state is not in the archive. |
+| `ACTION_STATE_OUT_OF_RANGE` | The action state falls outside the requested range. |
+| `RATE_LIMITED` | Too many requests. Back off and retry. |
+
+```rust,no_run
+use mina_archive_sdk::{codes, Error};
+
+# fn example(err: &Error) {
+if err.has_graphql_code(codes::BLOCK_RANGE_ERROR) {
+    // Narrow the range and try again.
+}
+for code in err.graphql_codes() {
+    eprintln!("code: {code}");
+}
+# }
+```
+
+An **empty** result from `graphql_codes()` means no code was sent, not that nothing went
+wrong. The server runs with masked errors, so an unexpected failure arrives as a generic
+message with no `extensions` at all.
 
 ## Examples
 
