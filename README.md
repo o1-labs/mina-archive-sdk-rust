@@ -155,6 +155,36 @@ match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 # }
 ```
 
+#### Partial results
+
+A response can legally carry **both** `data` and `errors` — the root lists and most of
+their fields are nullable, so the server nulls the field that failed and reports it
+alongside the rows that succeeded.
+
+The methods above are strict: they treat that as a failure. When you would rather keep
+what did arrive, use the `*_with_errors` family, which returns a `Response<T>`:
+
+```rust,no_run
+# async fn example(client: &mina_archive_sdk::ArchiveClient) -> mina_archive_sdk::Result<()> {
+use mina_archive_sdk::EventFilterOptionsInput;
+
+let resp = client
+    .get_events_with_errors(EventFilterOptionsInput::for_address("B62q..."))
+    .await?;
+
+if resp.is_partial() {
+    eprintln!("partial result: {}", resp.messages());
+}
+for group in resp.data.unwrap_or_default() {
+    // the rows that did arrive
+    let _ = group;
+}
+# Ok(())
+# }
+```
+
+`data: null` with errors is a total failure on both paths, not a partial one.
+
 #### Rate limiting and HTTP status
 
 Every GraphQL-level error from this API arrives as **HTTP 200** with a populated

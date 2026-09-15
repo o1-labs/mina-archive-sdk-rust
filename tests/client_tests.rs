@@ -608,3 +608,79 @@ async fn graphql_shaped_4xx_keeps_its_errors() {
         other => panic!("expected Error::Graphql, got {other:?}"),
     }
 }
+
+/// HTTP 200 with BOTH a partial `data` and an `errors` array is a normal
+/// GraphQL outcome (#10). The strict path reported it as a total failure and
+/// the rows that did succeed were unrecoverable.
+#[tokio::test]
+async fn partial_data_and_errors_are_both_reachable() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "events": [{
+                "blockInfo": {
+                    "height": 100, "stateHash": "3NK...", "parentHash": "3NL...",
+                    "ledgerHash": "jx...", "chainStatus": "canonical",
+                    "timestamp": "1692054601000", "globalSlotSinceHardfork": 1,
+                    "globalSlotSinceGenesis": 2, "distanceFromMaxBlockHeight": 3,
+                },
+                "eventData": null,
+            }]},
+            "errors": [{ "message": "partial" }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let resp = client
+        .get_events_with_errors(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .expect("a partial response is not a transport failure");
+
+    // Both halves, from the single call.
+    let events = resp.data.as_ref().expect("the decoded event must survive");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].block_info.as_ref().unwrap().height, 100);
+    assert_eq!(resp.errors.len(), 1);
+    assert_eq!(resp.errors[0].message, "partial");
+    assert!(resp.is_partial());
+    assert_eq!(resp.messages(), "partial");
+}
+
+/// The strict methods must stay strict — a partial response is still an error
+/// there, so this is opt-in rather than a silent change of meaning.
+#[tokio::test]
+async fn strict_method_still_fails_on_partial_data() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "events": [] },
+            "errors": [{ "message": "partial" }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client
+        .get_events(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("partial"), "got {err}");
+}
+
+/// data: null with errors is a total failure, not a partial one, on both paths.
+#[tokio::test]
+async fn null_data_with_errors_is_a_plain_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": null,
+            "errors": [{ "message": "Unexpected error." }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state_with_errors().await.unwrap_err();
+    assert!(matches!(err, Error::Graphql { .. }), "got {err:?}");
+}
