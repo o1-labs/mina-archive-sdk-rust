@@ -151,14 +151,84 @@ pub struct BlockQueryInput {
     pub block_height_gte: Option<i64>,
     #[serde(rename = "blockHeight_lt", skip_serializing_if = "Option::is_none")]
     pub block_height_lt: Option<i64>,
+    /// Inclusive lower bound, as an ISO-8601 / RFC 3339 instant.
+    ///
+    /// The server coerces this with JavaScript's `new Date(value).getTime()`.
+    /// A value it cannot parse becomes `NaN`, which reaches SQL as the literal
+    /// string `"NaN"` and **matches nothing without erroring** — the query
+    /// returns HTTP 200 and an empty list. `"14/08/2023"` fails this way;
+    /// `"Aug 14 2023"` parses but depends on the server's local timezone.
+    ///
+    /// Prefer [`BlockQueryInput::date_time_gte_from_unix_ms`], which cannot
+    /// express an unparseable value.
     #[serde(rename = "dateTime_gte", skip_serializing_if = "Option::is_none")]
     pub date_time_gte: Option<String>,
+    /// Exclusive upper bound, as an ISO-8601 / RFC 3339 instant.
+    ///
+    /// Carries the same silent-empty-result hazard as
+    /// [`BlockQueryInput::date_time_gte`]. Prefer
+    /// [`BlockQueryInput::date_time_lt_from_unix_ms`].
     #[serde(rename = "dateTime_lt", skip_serializing_if = "Option::is_none")]
     pub date_time_lt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub canonical: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "inBestChain")]
     pub in_best_chain: Option<bool>,
+}
+
+impl BlockQueryInput {
+    /// Set the inclusive lower bound from Unix epoch milliseconds.
+    ///
+    /// Formats to ISO-8601 with a `Z` offset, which the server always parses
+    /// to a finite number — so this cannot produce the silent empty result
+    /// that a hand-written date string can.
+    pub fn date_time_gte_from_unix_ms(mut self, ms: i64) -> Self {
+        self.date_time_gte = Some(iso8601_from_unix_ms(ms));
+        self
+    }
+
+    /// Set the exclusive upper bound from Unix epoch milliseconds.
+    ///
+    /// See [`BlockQueryInput::date_time_gte_from_unix_ms`].
+    pub fn date_time_lt_from_unix_ms(mut self, ms: i64) -> Self {
+        self.date_time_lt = Some(iso8601_from_unix_ms(ms));
+        self
+    }
+}
+
+/// Format Unix epoch milliseconds as `YYYY-MM-DDTHH:MM:SS.sssZ`.
+///
+/// Hand-rolled because the crate carries no `chrono`/`time` dependency and
+/// this is the only place a date has to be built. Uses Howard Hinnant's
+/// `civil_from_days`, which is exact for the whole proleptic Gregorian range.
+fn iso8601_from_unix_ms(ms: i64) -> String {
+    const MS_PER_DAY: i64 = 86_400_000;
+    let days = ms.div_euclid(MS_PER_DAY);
+    let mut rem = ms.rem_euclid(MS_PER_DAY);
+
+    let millis = rem % 1000;
+    rem /= 1000;
+    let seconds = rem % 60;
+    rem /= 60;
+    let minutes = rem % 60;
+    let hours = rem / 60;
+
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
+}
+
+/// Days since 1970-01-01 to a (year, month, day) civil date.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    (if m <= 2 { y + 1 } else { y }, m as u32, d as u32)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -196,6 +266,11 @@ pub struct BlockInfo {
     pub parent_hash: String,
     pub ledger_hash: String,
     pub chain_status: String,
+    /// Unix epoch **milliseconds** as a decimal string, e.g. `"1692054601000"`.
+    ///
+    /// **Not** ISO-8601 — an RFC 3339 parser rejects it, and reading it as
+    /// seconds puts the block in 1970. Parse the integer first. Contrast
+    /// [`Block::date_time`], a few fields away, which *is* ISO-8601.
     pub timestamp: String,
     pub global_slot_since_hardfork: i64,
     pub global_slot_since_genesis: i64,
@@ -304,6 +379,47 @@ pub struct Block {
     pub creator: String,
     pub state_hash: String,
     pub parent_hash: String,
+    /// ISO-8601 instant, e.g. `"2023-08-14T23:10:01.000Z"`.
+    ///
+    /// The server derives it from the same archive column that
+    /// [`BlockInfo::timestamp`] exposes raw, so the two describe the same kind
+    /// of value in two different encodings.
     pub date_time: String,
     pub transactions: BlockTransactions,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The values in #13's evidence table, plus the epoch and a pre-epoch
+    /// instant to exercise the floor-division path.
+    #[test]
+    fn iso8601_from_unix_ms_matches_javascript_to_iso_string() {
+        let cases: &[(i64, &str)] = &[
+            (1_691_971_200_000, "2023-08-14T00:00:00.000Z"),
+            (1_692_054_601_000, "2023-08-14T23:10:01.000Z"),
+            (0, "1970-01-01T00:00:00.000Z"),
+            (-1, "1969-12-31T23:59:59.999Z"),
+            (951_782_400_000, "2000-02-29T00:00:00.000Z"),
+            (4_102_444_800_000, "2100-01-01T00:00:00.000Z"),
+        ];
+        for (ms, expected) in cases {
+            assert_eq!(&iso8601_from_unix_ms(*ms), expected, "for {ms} ms");
+        }
+    }
+
+    /// The point of the typed constructors: the string they emit is one the
+    /// server's `new Date(v).getTime()` turns back into the same finite
+    /// number, so the filter cannot silently match nothing.
+    #[test]
+    fn typed_constructors_round_trip_through_the_wire_format() {
+        let input = BlockQueryInput::default()
+            .date_time_gte_from_unix_ms(1_691_971_200_000)
+            .date_time_lt_from_unix_ms(1_692_054_601_000);
+
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["dateTime_gte"], "2023-08-14T00:00:00.000Z");
+        assert_eq!(json["dateTime_lt"], "2023-08-14T23:10:01.000Z");
+    }
 }
