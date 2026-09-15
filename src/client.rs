@@ -39,7 +39,7 @@ impl Default for ClientConfig {
 /// # async fn example() -> mina_archive_sdk::Result<()> {
 /// use mina_archive_sdk::{ArchiveClient, BlockStatusFilter, EventFilterOptionsInput};
 ///
-/// let client = ArchiveClient::new("https://archive.example/graphql");
+/// let client = ArchiveClient::new("https://archive.example/");
 /// let events = client.get_events(
 ///     EventFilterOptionsInput::for_address("B62q...")
 ///         .status(BlockStatusFilter::Canonical),

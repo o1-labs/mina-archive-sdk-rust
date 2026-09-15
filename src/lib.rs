@@ -7,11 +7,15 @@
 //!
 //! # Quick start
 //!
+//! Archive-Node-API serves GraphQL at the root path `/`, not `/graphql`. Pass
+//! the base URL as-is — the SDK never appends a path, so a URL ending in
+//! `/graphql` returns 404.
+//!
 //! ```no_run
 //! # async fn example() -> mina_archive_sdk::Result<()> {
 //! use mina_archive_sdk::{ArchiveClient, BlockStatusFilter, EventFilterOptionsInput};
 //!
-//! let client = ArchiveClient::new("https://archive.example/graphql");
+//! let client = ArchiveClient::new("https://archive.example/");
 //! let events = client.get_events(
 //!     EventFilterOptionsInput::for_address("B62q...")
 //!         .status(BlockStatusFilter::Canonical)
@@ -52,7 +56,7 @@
 //! # async fn example() -> mina_archive_sdk::Result<()> {
 //! use mina_archive_sdk::{ArchiveClient, EventFilterOptionsInput, Error};
 //!
-//! let client = ArchiveClient::new("https://archive.example/graphql");
+//! let client = ArchiveClient::new("https://archive.example/");
 //! match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 //!     Ok(events) => println!("got {} groups", events.len()),
 //!     Err(Error::Graphql { messages, .. }) => eprintln!("server rejected the query: {messages}"),
