@@ -214,10 +214,10 @@ English message strings:
 | `RATE_LIMITED` | Too many requests. Back off and retry. |
 
 ```rust,no_run
-use mina_archive_sdk::Error;
+use mina_archive_sdk::{codes, Error};
 
 # fn example(err: &Error) {
-if err.has_graphql_code("BLOCK_RANGE_ERROR") {
+if err.has_graphql_code(codes::BLOCK_RANGE_ERROR) {
     // Narrow the range and try again.
 }
 for code in err.graphql_codes() {

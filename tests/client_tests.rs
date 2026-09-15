@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use mina_archive_sdk::{
-    ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
-    ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
+    codes, ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy,
+    BlockStatusFilter, ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
     VerificationKeyUpdateFilterInput,
 };
 use serde_json::json;
@@ -427,9 +427,9 @@ async fn graphql_error_carries_extensions_path_and_locations() {
         .await
         .unwrap_err();
 
-    assert_eq!(err.graphql_codes(), vec!["BLOCK_RANGE_ERROR"]);
-    assert!(err.has_graphql_code("BLOCK_RANGE_ERROR"));
-    assert!(!err.has_graphql_code("RATE_LIMITED"));
+    assert_eq!(err.graphql_codes(), vec![codes::BLOCK_RANGE_ERROR]);
+    assert!(err.has_graphql_code(codes::BLOCK_RANGE_ERROR));
+    assert!(!err.has_graphql_code(codes::RATE_LIMITED));
 
     match &err {
         mina_archive_sdk::Error::Graphql { errors, .. } => {

@@ -76,7 +76,7 @@ mod types;
 
 pub use client::{ArchiveClient, ClientConfig, GetBlocksOptions, QueryBuilder};
 pub use currency::Currency;
-pub use error::{Error, GraphqlErrorEntry, Result};
+pub use error::{codes, Error, GraphqlErrorEntry, Result};
 pub use response::Response;
 pub use types::{
     ActionData, ActionFilterOptionsInput, ActionOutput, ActionStates, Block, BlockInfo,

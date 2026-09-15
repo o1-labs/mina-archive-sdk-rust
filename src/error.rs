@@ -76,6 +76,22 @@ pub enum Error {
     InvalidCurrency(String),
 }
 
+/// Contract error codes published by Archive-Node-API in `extensions.code`.
+///
+/// These are the supported way to branch on a failure. Message text is
+/// deliberately minimal — the server blocks GraphQL field suggestions — and
+/// carries no stability promise, so do not match on it.
+pub mod codes {
+    /// Range exceeds `BLOCK_RANGE_SIZE`. Narrow it; retrying unchanged fails.
+    pub const BLOCK_RANGE_ERROR: &str = "BLOCK_RANGE_ERROR";
+    /// The action state is not in the archive.
+    pub const ACTION_STATE_NOT_FOUND: &str = "ACTION_STATE_NOT_FOUND";
+    /// The action state falls outside the requested block range.
+    pub const ACTION_STATE_OUT_OF_RANGE: &str = "ACTION_STATE_OUT_OF_RANGE";
+    /// Too many requests. See [`crate::Error::RateLimited`].
+    pub const RATE_LIMITED: &str = "RATE_LIMITED";
+}
+
 /// One entry from a GraphQL response's `errors` array.
 ///
 /// `extensions.code` is the API's intended discriminator. It publishes four
