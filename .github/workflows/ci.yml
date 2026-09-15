@@ -25,4 +25,33 @@ jobs:
       # Doctests are what carry the documented endpoint URLs. `--lib --tests`
       # skips them, which is how a wrong URL survived in rustdoc examples (#7).
       - run: cargo test --doc
+
+      # The README install snippet drifted to 0.0.1 while the crate was at
+      # 1.0.1 (#14). Assert the crate still satisfies what the README tells
+      # people to depend on: same major, and a minor at or above the pin.
+      - name: Verify the README install snippet matches the crate version
+        run: |
+          req=$(sed -n 's/^mina-archive-sdk = "\([^"]*\)".*/\1/p' README.md)
+          pkg=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
+          if [ -z "$req" ]; then
+            echo "could not find the mina-archive-sdk install line in README.md"
+            exit 1
+          fi
+          req_major=${req%%.*}
+          pkg_major=${pkg%%.*}
+          if [ "$req_major" != "$pkg_major" ]; then
+            echo "README pins $req but the crate is $pkg (major differs)"
+            exit 1
+          fi
+          req_rest=${req#*.}
+          if [ "$req_rest" != "$req" ]; then
+            req_minor=${req_rest%%.*}
+            pkg_rest=${pkg#*.}
+            pkg_minor=${pkg_rest%%.*}
+            if [ "$pkg_minor" -lt "$req_minor" ]; then
+              echo "README pins $req but the crate is $pkg (minor is lower)"
+              exit 1
+            fi
+          fi
+          echo "README pins $req, crate is $pkg — compatible"
       - run: cargo doc --no-deps
