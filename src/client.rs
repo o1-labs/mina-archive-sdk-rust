@@ -234,8 +234,14 @@ impl ArchiveClient {
         decode_field(&data, "networkState", "get_network_state")
     }
 
-    /// Query blocks by height/date range and chain status, with full
-    /// transaction detail.
+    /// Query blocks by height/date range and chain status.
+    ///
+    /// Transaction detail is only populated when the server sets
+    /// `ENABLE_BLOCK_TRANSACTION_DETAILS=true`, which **defaults to `false`**.
+    /// Against a stock server every returned block has `parent_hash == ""` and
+    /// empty `user_commands`, `zkapp_commands` and `fee_transfer`, while
+    /// `coinbase` **is** populated — so the response looks healthy and is
+    /// easily mistaken for an empty chain or an SDK bug.
     pub async fn get_blocks(&self, opts: GetBlocksOptions) -> Result<Vec<Block>> {
         let vars = json!({
             "query": opts.query,
