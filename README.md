@@ -76,6 +76,41 @@ let client = ArchiveClient::with_config(ClientConfig {
 });
 ```
 
+### Dates and times
+
+The schema carries **two different time encodings**, a few fields apart, and both
+arrive as strings:
+
+| Field | Encoding | Example |
+| --- | --- | --- |
+| `BlockInfo::timestamp` | Unix epoch **milliseconds**, decimal string | `"1692054601000"` |
+| `Block::date_time` | ISO-8601 | `"2023-08-14T23:10:01.000Z"` |
+
+`BlockInfo::timestamp` is a raw pass-through of the archive DB column. Do **not** feed
+it to an RFC 3339 parser, and do not read it as seconds.
+
+On input, `date_time_gte` / `date_time_lt` must be ISO-8601. The server coerces them
+with JavaScript's `new Date(value).getTime()`, and a value it cannot parse becomes
+`NaN`, which reaches SQL as the string `"NaN"` and **matches nothing without
+erroring** — HTTP 200, empty list, no diagnostic anywhere:
+
+```text
+"2023-08-14T00:00:00Z"  -> 1691971200000    ok
+"2023-08-14"            -> 1691971200000    ok
+"14/08/2023"            -> NaN              silently returns zero rows
+"Aug 14 2023"           -> 1691964000000    parses, but timezone-dependent
+```
+
+Use the typed constructors to make that unrepresentable:
+
+```rust
+use mina_archive_sdk::BlockQueryInput;
+
+let query = BlockQueryInput::default()
+    .date_time_gte_from_unix_ms(1_691_971_200_000)
+    .date_time_lt_from_unix_ms(1_692_054_601_000);
+```
+
 ### Currency
 
 `Currency` wraps nanomina amounts in a `u64` for safe parsing of coinbase / fee / user-command values:
