@@ -288,6 +288,11 @@ pub struct FeeTransfer {
     pub kind: String,
 }
 
+/// Transactions attached to a block.
+///
+/// Only `coinbase` is populated by a stock server. The other three fields
+/// require `ENABLE_BLOCK_TRANSACTION_DETAILS=true`, which defaults to `false`,
+/// and are empty otherwise. `Block::parent_hash` is `""` under the same flag.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockTransactions {

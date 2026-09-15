@@ -1,5 +1,11 @@
 //! Query a range of blocks; demonstrates the Currency helper for parsing
 //! coinbase / fee amounts.
+//!
+//! The user-command count printed below is `0` against a stock server, and
+//! that is not a bug in this example. Transaction detail requires the server
+//! to set `ENABLE_BLOCK_TRANSACTION_DETAILS=true`, which defaults to `false`;
+//! without it `parent_hash` is `""` and `user_commands`, `zkapp_commands` and
+//! `fee_transfer` are empty. `coinbase` is populated either way.
 
 use mina_archive_sdk::{ArchiveClient, BlockQueryInput, BlockSortBy, Currency, GetBlocksOptions};
 
