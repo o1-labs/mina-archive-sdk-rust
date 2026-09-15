@@ -153,6 +153,36 @@ match client.get_events(EventFilterOptionsInput::for_address("B62q...")).await {
 # }
 ```
 
+#### Contract error codes
+
+The API attaches `extensions.code` to every domain error and keeps the message text
+deliberately minimal, so the **code is the intended discriminator** — do not match on
+English message strings:
+
+| Code | Meaning |
+| --- | --- |
+| `BLOCK_RANGE_ERROR` | The requested range exceeds `BLOCK_RANGE_SIZE`. Narrow it; never retry unchanged. |
+| `ACTION_STATE_NOT_FOUND` | The action state is not in the archive. |
+| `ACTION_STATE_OUT_OF_RANGE` | The action state falls outside the requested range. |
+| `RATE_LIMITED` | Too many requests. Back off and retry. |
+
+```rust,no_run
+use mina_archive_sdk::Error;
+
+# fn example(err: &Error) {
+if err.has_graphql_code("BLOCK_RANGE_ERROR") {
+    // Narrow the range and try again.
+}
+for code in err.graphql_codes() {
+    eprintln!("code: {code}");
+}
+# }
+```
+
+An **empty** result from `graphql_codes()` means no code was sent, not that nothing went
+wrong. The server runs with masked errors, so an unexpected failure arrives as a generic
+message with no `extensions` at all.
+
 ## Examples
 
 ```sh
