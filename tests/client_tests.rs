@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use mina_archive_sdk::{
-    ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
-    ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
+    codes, ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy,
+    BlockStatusFilter, ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
     VerificationKeyUpdateFilterInput,
 };
 use serde_json::json;
@@ -401,4 +401,286 @@ async fn non_empty_errors_array_still_fails() {
         err.to_string().contains("Block range exceeds maximum"),
         "unexpected error: {err}"
     );
+}
+
+/// The API attaches `extensions.code` to every domain error and keeps message
+/// text deliberately minimal, so the code is the intended discriminator (#9).
+/// All of it used to be discarded except the message string.
+#[tokio::test]
+async fn graphql_error_carries_extensions_path_and_locations() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{
+                "message": "Block range exceeds maximum",
+                "path": ["events"],
+                "locations": [{ "line": 2, "column": 3 }],
+                "extensions": { "code": "BLOCK_RANGE_ERROR", "status": 400 },
+            }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client
+        .get_events(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.graphql_codes(), vec![codes::BLOCK_RANGE_ERROR]);
+    assert!(err.has_graphql_code(codes::BLOCK_RANGE_ERROR));
+    assert!(!err.has_graphql_code(codes::RATE_LIMITED));
+
+    match &err {
+        mina_archive_sdk::Error::Graphql { errors, .. } => {
+            let e = &errors[0];
+            assert_eq!(e.code.as_deref(), Some("BLOCK_RANGE_ERROR"));
+            assert_eq!(e.path.as_ref().unwrap()[0], json!("events"));
+            assert_eq!(e.locations.as_ref().unwrap()[0]["line"], json!(2));
+            // The whole extensions object is kept, not just the code.
+            assert_eq!(e.extensions.as_ref().unwrap()["status"], json!(400));
+        }
+        other => panic!("expected Error::Graphql, got {other:?}"),
+    }
+}
+
+/// The server runs `maskedErrors: { isDev: false }`, so an unexpected error
+/// arrives with a generic message and NO extensions. `code` must stay optional
+/// and this path must keep working.
+#[tokio::test]
+async fn masked_error_without_extensions_still_decodes() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "errors": [{ "message": "Unexpected error." }],
+            "data": null,
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state().await.unwrap_err();
+
+    assert!(err.graphql_codes().is_empty(), "a masked error has no code");
+    assert!(err.to_string().contains("Unexpected error."));
+    match &err {
+        mina_archive_sdk::Error::Graphql { errors, .. } => {
+            assert!(errors[0].code.is_none());
+            assert!(errors[0].extensions.is_none());
+        }
+        other => panic!("expected Error::Graphql, got {other:?}"),
+    }
+}
+
+/// The rate limiter returns 429 with a GraphQL-shaped body plus three headers,
+/// before GraphQL runs (#8). All of it used to be discarded: the error came
+/// back indistinguishable from a query error, with no status and no retry hint.
+#[tokio::test]
+async fn rate_limited_exposes_retry_after_and_budget() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "30")
+                .insert_header("x-ratelimit-limit", "600")
+                .insert_header("x-ratelimit-remaining", "0")
+                .set_body_json(json!({
+                    "errors": [{
+                        "message": "Too many requests",
+                        "extensions": { "code": "RATE_LIMITED" },
+                    }],
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    // retries = 1 so the call does not sleep through retry-after.
+    let client = ArchiveClient::with_config(ClientConfig {
+        graphql_uri: server.uri(),
+        retries: 1,
+        retry_delay: Duration::from_millis(0),
+        timeout: Duration::from_secs(5),
+    });
+    let err = client.get_network_state().await.unwrap_err();
+
+    match &err {
+        mina_archive_sdk::Error::RateLimited {
+            retry_after,
+            limit,
+            remaining,
+            messages,
+            ..
+        } => {
+            assert_eq!(*retry_after, Some(Duration::from_secs(30)));
+            assert_eq!(*limit, Some(600));
+            assert_eq!(*remaining, Some(0));
+            assert!(messages.contains("Too many requests"));
+        }
+        other => panic!("expected Error::RateLimited, got {other:?}"),
+    }
+}
+
+/// A 429 is the one status where retrying the identical request is correct,
+/// and retry-after is the server telling us how long to wait.
+#[tokio::test]
+async fn rate_limited_is_retried_then_succeeds() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "0")
+                .set_body_json(json!({ "errors": [{ "message": "Too many requests" }] })),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "networkState": { "maxBlockHeight": {
+                "canonicalMaxBlockHeight": 1000, "pendingMaxBlockHeight": 1010 } } },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let state = client.get_network_state().await.unwrap();
+    assert_eq!(
+        state.max_block_height.unwrap().canonical_max_block_height,
+        1000
+    );
+}
+
+/// A 404 with a non-GraphQL body is the shape you get from POSTing to
+/// /graphql. It used to surface as "error decoding response body" or as
+/// "missing field", both of which misdirect the diagnosis.
+#[tokio::test]
+async fn non_graphql_404_reports_the_status() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Not Found"))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client
+        .get_events(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .unwrap_err();
+
+    let display = err.to_string();
+    assert!(display.contains("404"), "should name the status: {display}");
+    assert!(
+        !display.contains("decoding response body"),
+        "should not blame the body: {display}"
+    );
+    assert!(
+        !display.contains("missing field"),
+        "should not blame the schema: {display}"
+    );
+    assert!(matches!(
+        err,
+        mina_archive_sdk::Error::UnexpectedStatus { .. }
+    ));
+}
+
+/// A 4xx that IS GraphQL-shaped keeps its errors array rather than being
+/// flattened into UnexpectedStatus.
+#[tokio::test]
+async fn graphql_shaped_4xx_keeps_its_errors() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "errors": [{
+                "message": "Block range exceeds maximum",
+                "extensions": { "code": "BLOCK_RANGE_ERROR" },
+            }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state().await.unwrap_err();
+    assert!(err.has_graphql_code("BLOCK_RANGE_ERROR"));
+    match err {
+        mina_archive_sdk::Error::Graphql { status, .. } => {
+            assert_eq!(status.as_u16(), 400);
+        }
+        other => panic!("expected Error::Graphql, got {other:?}"),
+    }
+}
+
+/// HTTP 200 with BOTH a partial `data` and an `errors` array is a normal
+/// GraphQL outcome (#10). The strict path reported it as a total failure and
+/// the rows that did succeed were unrecoverable.
+#[tokio::test]
+async fn partial_data_and_errors_are_both_reachable() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "events": [{
+                "blockInfo": {
+                    "height": 100, "stateHash": "3NK...", "parentHash": "3NL...",
+                    "ledgerHash": "jx...", "chainStatus": "canonical",
+                    "timestamp": "1692054601000", "globalSlotSinceHardfork": 1,
+                    "globalSlotSinceGenesis": 2, "distanceFromMaxBlockHeight": 3,
+                },
+                "eventData": null,
+            }]},
+            "errors": [{ "message": "partial" }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let resp = client
+        .get_events_with_errors(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .expect("a partial response is not a transport failure");
+
+    // Both halves, from the single call.
+    let events = resp.data.as_ref().expect("the decoded event must survive");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].block_info.as_ref().unwrap().height, 100);
+    assert_eq!(resp.errors.len(), 1);
+    assert_eq!(resp.errors[0].message, "partial");
+    assert!(resp.is_partial());
+    assert_eq!(resp.messages(), "partial");
+}
+
+/// The strict methods must stay strict — a partial response is still an error
+/// there, so this is opt-in rather than a silent change of meaning.
+#[tokio::test]
+async fn strict_method_still_fails_on_partial_data() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "events": [] },
+            "errors": [{ "message": "partial" }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client
+        .get_events(EventFilterOptionsInput::for_address("B62q..."))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("partial"), "got {err}");
+}
+
+/// data: null with errors is a total failure, not a partial one, on both paths.
+#[tokio::test]
+async fn null_data_with_errors_is_a_plain_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": null,
+            "errors": [{ "message": "Unexpected error." }],
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let err = client.get_network_state_with_errors().await.unwrap_err();
+    assert!(matches!(err, Error::Graphql { .. }), "got {err:?}");
 }
