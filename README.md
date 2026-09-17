@@ -13,7 +13,7 @@ Companion to the daemon-targeting [`mina-sdk`](https://crates.io/crates/mina-sdk
 
 ```toml
 [dependencies]
-mina-archive-sdk = "1.0"
+mina-archive-sdk = "2.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
