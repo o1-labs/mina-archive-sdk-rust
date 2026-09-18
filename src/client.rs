@@ -10,13 +10,32 @@ use crate::response::Response;
 use crate::types::*;
 
 /// Configuration for the Archive Node client.
+///
+/// `#[non_exhaustive]`, so build it from [`ClientConfig::default`] and the
+/// setters rather than with a struct literal:
+///
+/// ```
+/// use std::time::Duration;
+/// use mina_archive_sdk::ClientConfig;
+///
+/// let config = ClientConfig::new("https://archive.example/")
+///     .attempts(5)
+///     .timeout(Duration::from_secs(60));
+/// ```
+///
+/// The schema gains fields under a *minor* server release, so anything the
+/// caller may need to configure later has to be addable without a major here.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ClientConfig {
     /// GraphQL endpoint URL.
     pub graphql_uri: String,
-    /// Total number of attempts (including the initial try). Must be ≥ 1.
+    /// Total number of attempts, **including the initial try** — `retries: 5`
+    /// means five requests, not one plus five. Must be ≥ 1.
+    ///
+    /// Prefer [`ClientConfig::attempts`], which says so in its name.
     pub retries: u32,
-    /// Delay between retries.
+    /// Delay between attempts.
     pub retry_delay: Duration,
     /// Per-request HTTP timeout.
     pub timeout: Duration,
@@ -30,6 +49,42 @@ impl Default for ClientConfig {
             retry_delay: Duration::from_secs(5),
             timeout: Duration::from_secs(30),
         }
+    }
+}
+
+impl ClientConfig {
+    /// Default configuration pointed at `graphql_uri`.
+    pub fn new(graphql_uri: impl Into<String>) -> Self {
+        Self {
+            graphql_uri: graphql_uri.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Set the endpoint URL.
+    pub fn graphql_uri(mut self, uri: impl Into<String>) -> Self {
+        self.graphql_uri = uri.into();
+        self
+    }
+
+    /// Set the **total** number of attempts, including the first one.
+    ///
+    /// `attempts(1)` disables retrying. Values below 1 are raised to 1.
+    pub fn attempts(mut self, attempts: u32) -> Self {
+        self.retries = attempts.max(1);
+        self
+    }
+
+    /// Set the delay between attempts.
+    pub fn retry_delay(mut self, delay: Duration) -> Self {
+        self.retry_delay = delay;
+        self
+    }
+
+    /// Set the per-request HTTP timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 }
 
@@ -49,6 +104,10 @@ impl Default for ClientConfig {
 /// # Ok(())
 /// # }
 /// ```
+///
+/// Cloning is cheap: the inner [`reqwest::Client`] is reference-counted and
+/// clones share one connection pool, so a client per task needs no `Arc`.
+#[derive(Clone, Debug)]
 pub struct ArchiveClient {
     config: ClientConfig,
     http: reqwest::Client,
@@ -403,11 +462,53 @@ impl ArchiveClient {
 }
 
 /// Options for [`ArchiveClient::get_blocks`]. All fields are optional.
+///
+/// `#[non_exhaustive]`, so build it from [`GetBlocksOptions::default`] and the
+/// setters rather than with a struct literal:
+///
+/// ```
+/// use mina_archive_sdk::{BlockQueryInput, BlockSortBy, GetBlocksOptions};
+///
+/// let opts = GetBlocksOptions::default()
+///     .query(BlockQueryInput {
+///         canonical: Some(true),
+///         ..Default::default()
+///     })
+///     .limit(50)
+///     .sort_by(BlockSortBy::Desc);
+/// ```
+///
+/// Omitting `limit` lets the server apply its own default of **200**, capped
+/// at 10,000 — not "every block".
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct GetBlocksOptions {
     pub query: Option<BlockQueryInput>,
-    pub limit: Option<i64>,
+    /// GraphQL `Int` is signed 32-bit, hence `i32`. Server default 200, cap
+    /// 10,000.
+    pub limit: Option<i32>,
     pub sort_by: Option<BlockSortBy>,
+}
+
+impl GetBlocksOptions {
+    /// Filter by height/date range and chain status.
+    pub fn query(mut self, query: BlockQueryInput) -> Self {
+        self.query = Some(query);
+        self
+    }
+
+    /// Cap the number of blocks returned. The server defaults to 200 and
+    /// refuses more than 10,000.
+    pub fn limit(mut self, limit: i32) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Order the results by block height.
+    pub fn sort_by(mut self, sort_by: BlockSortBy) -> Self {
+        self.sort_by = Some(sort_by);
+        self
+    }
 }
 
 /// Builder returned by [`ArchiveClient::query`].
