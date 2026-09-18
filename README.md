@@ -54,10 +54,10 @@ Each method on `ArchiveClient` maps 1:1 to a GraphQL query in the [Archive-Node-
 
 | Method | Returns | Description |
 | --- | --- | --- |
-| `get_events(input)` | `Vec<EventOutput>` | Events emitted by a zkApp account. |
-| `get_actions(input)` | `Vec<ActionOutput>` | Actions dispatched from a zkApp account. |
+| `get_events(input)` | `Vec<Option<EventOutput>>` | Events emitted by a zkApp account. |
+| `get_actions(input)` | `Vec<Option<ActionOutput>>` | Actions dispatched from a zkApp account. |
 | `get_network_state()` | `NetworkStateOutput` | Archive's max canonical / pending block heights. |
-| `get_blocks(opts)` | `Vec<Block>` | Blocks filtered by height/date range and chain status. Transaction detail needs `ENABLE_BLOCK_TRANSACTION_DETAILS` on the server — see below. |
+| `get_blocks(opts)` | `Vec<Option<Block>>` | Blocks filtered by height/date range and chain status. Transaction detail needs `ENABLE_BLOCK_TRANSACTION_DETAILS` on the server — see below. |
 | `get_verification_key_updates(input)` | `Vec<VerificationKeyUpdate>` | Applied account updates that set a given verification key, within a required block range. |
 | `query(gql)` | builder | Arbitrary GraphQL through the same retry path. |
 | `execute_query(gql, vars, name)` | `serde_json::Value` | Low-level escape hatch returning the raw `data` field. |
