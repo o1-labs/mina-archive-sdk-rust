@@ -12,12 +12,12 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn fast_client(uri: &str) -> ArchiveClient {
-    ArchiveClient::with_config(ClientConfig {
-        graphql_uri: uri.to_string(),
-        retries: 3,
-        retry_delay: Duration::from_millis(1),
-        timeout: Duration::from_secs(5),
-    })
+    ArchiveClient::with_config(
+        ClientConfig::new(uri)
+            .attempts(3)
+            .retry_delay(Duration::from_millis(1))
+            .timeout(Duration::from_secs(5)),
+    )
 }
 
 #[tokio::test]
@@ -131,14 +131,15 @@ async fn get_blocks_passes_filters() {
 
     let client = fast_client(&server.uri());
     let blocks = client
-        .get_blocks(GetBlocksOptions {
-            query: Some(BlockQueryInput {
-                canonical: Some(true),
-                ..Default::default()
-            }),
-            limit: Some(5),
-            sort_by: Some(BlockSortBy::Desc),
-        })
+        .get_blocks(
+            GetBlocksOptions::default()
+                .query(BlockQueryInput {
+                    canonical: Some(true),
+                    ..Default::default()
+                })
+                .limit(5)
+                .sort_by(BlockSortBy::Desc),
+        )
         .await
         .unwrap();
     assert!(blocks.is_empty());
@@ -268,12 +269,12 @@ async fn persistent_failure_gives_connection_error() {
         .mount(&server)
         .await;
 
-    let client = ArchiveClient::with_config(ClientConfig {
-        graphql_uri: server.uri(),
-        retries: 2,
-        retry_delay: Duration::from_millis(1),
-        timeout: Duration::from_secs(5),
-    });
+    let client = ArchiveClient::with_config(
+        ClientConfig::new(server.uri())
+            .attempts(2)
+            .retry_delay(Duration::from_millis(1))
+            .timeout(Duration::from_secs(5)),
+    );
     let err = client.get_network_state().await.unwrap_err();
     match err {
         Error::Connection { attempts, .. } => assert_eq!(attempts, 2),
@@ -342,12 +343,13 @@ async fn custom_query_builder_threads_variables() {
 #[test]
 #[should_panic(expected = "retries must be at least 1")]
 fn rejects_retries_zero() {
-    ArchiveClient::with_config(ClientConfig {
-        graphql_uri: "http://x".into(),
-        retries: 0,
-        retry_delay: Duration::from_secs(1),
-        timeout: Duration::from_secs(1),
-    });
+    // ClientConfig is #[non_exhaustive], so this cannot be a struct literal —
+    // and ClientConfig::attempts raises 0 to 1 rather than building an invalid
+    // config. Assigning the public field is the remaining way in, and
+    // with_config must still reject it.
+    let mut config = ClientConfig::new("http://x");
+    config.retries = 0;
+    ArchiveClient::with_config(config);
 }
 
 /// An empty `errors` array is not an error in GraphQL (#11). Any proxy or
@@ -494,12 +496,12 @@ async fn rate_limited_exposes_retry_after_and_budget() {
         .await;
 
     // retries = 1 so the call does not sleep through retry-after.
-    let client = ArchiveClient::with_config(ClientConfig {
-        graphql_uri: server.uri(),
-        retries: 1,
-        retry_delay: Duration::from_millis(0),
-        timeout: Duration::from_secs(5),
-    });
+    let client = ArchiveClient::with_config(
+        ClientConfig::new(server.uri())
+            .attempts(1)
+            .retry_delay(Duration::from_millis(0))
+            .timeout(Duration::from_secs(5)),
+    );
     let err = client.get_network_state().await.unwrap_err();
 
     match &err {
@@ -683,4 +685,24 @@ async fn null_data_with_errors_is_a_plain_error() {
     let client = fast_client(&server.uri());
     let err = client.get_network_state_with_errors().await.unwrap_err();
     assert!(matches!(err, Error::Graphql { .. }), "got {err:?}");
+}
+
+/// `ArchiveClient` must be `Clone + Debug + Send + Sync`.
+///
+/// It was `Send + Sync` but neither `Clone` nor `Debug`, so a caller wanting a
+/// client per task had to wrap it in an `Arc` for no reason — the inner
+/// `reqwest::Client` is reference-counted already — and could not put it in a
+/// `#[derive(Debug)]` application-state struct.
+#[test]
+fn client_is_clone_debug_send_sync() {
+    fn assert<T: Clone + std::fmt::Debug + Send + Sync>() {}
+    assert::<ArchiveClient>();
+
+    let client = ArchiveClient::new("https://archive.example/");
+    let clone = client.clone();
+    assert!(
+        !format!("{client:?}").is_empty(),
+        "Debug must render something"
+    );
+    drop(clone);
 }

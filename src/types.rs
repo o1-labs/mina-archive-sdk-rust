@@ -19,6 +19,20 @@ pub enum BlockSortBy {
 }
 
 /// Filter events from a specific account.
+///
+/// Only `address` is required. Omitting `token_id` makes the server default to
+/// the MINA token, `wSHV2S4qX9jFsLjQo8r1BsMLH2ZRKsZx6EJd1sbozGPieEC4Jf`, and
+/// omitting `status` defaults it to `BlockStatusFilter::All`.
+///
+/// **A range-less query is not "everything".** The server caps the block scan
+/// at its configured `BLOCK_RANGE_SIZE` (10,000 by default), and the SDL warns
+/// that you can get a *partial result* if you do not specify both `from` and
+/// `to`. Page through a wide history with explicit bounds.
+///
+/// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
+/// A height computed from a `u64` now fails to compile instead of coming back
+/// as a runtime GraphQL validation error. Output heights stay `i64` — widening
+/// an output is safe and the server already sends values as `Int`.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventFilterOptionsInput {
@@ -27,10 +41,12 @@ pub struct EventFilterOptionsInput {
     pub token_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<BlockStatusFilter>,
+    /// Inclusive lower block-height bound. `Int` is 32-bit — see the type doc.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from: Option<i64>,
+    pub from: Option<i32>,
+    /// Exclusive upper block-height bound. `Int` is 32-bit — see the type doc.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<i64>,
+    pub to: Option<i32>,
 }
 
 impl EventFilterOptionsInput {
@@ -50,17 +66,33 @@ impl EventFilterOptionsInput {
         self.status = Some(status);
         self
     }
-    pub fn from(mut self, from: i64) -> Self {
+    /// Filter from this block height, **inclusive**.
+    pub fn from(mut self, from: i32) -> Self {
         self.from = Some(from);
         self
     }
-    pub fn to(mut self, to: i64) -> Self {
+    /// Filter to this block height, **exclusive**.
+    pub fn to(mut self, to: i32) -> Self {
         self.to = Some(to);
         self
     }
 }
 
 /// Filter actions from a specific account.
+///
+/// Only `address` is required. Omitting `token_id` makes the server default to
+/// the MINA token, `wSHV2S4qX9jFsLjQo8r1BsMLH2ZRKsZx6EJd1sbozGPieEC4Jf`, and
+/// omitting `status` defaults it to `BlockStatusFilter::All`.
+///
+/// **A range-less query is not "everything".** The server caps the block scan
+/// at its configured `BLOCK_RANGE_SIZE` (10,000 by default), and the SDL warns
+/// that you can get a *partial result* if you do not specify both `from` and
+/// `to`. Page through a wide history with explicit bounds.
+///
+/// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
+/// A height computed from a `u64` now fails to compile instead of coming back
+/// as a runtime GraphQL validation error. Output heights stay `i64` — widening
+/// an output is safe and the server already sends values as `Int`.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionFilterOptionsInput {
@@ -69,10 +101,12 @@ pub struct ActionFilterOptionsInput {
     pub token_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<BlockStatusFilter>,
+    /// Inclusive lower block-height bound. `Int` is 32-bit — see the type doc.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub from: Option<i64>,
+    pub from: Option<i32>,
+    /// Exclusive upper block-height bound. `Int` is 32-bit — see the type doc.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<i64>,
+    pub to: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_action_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,11 +128,13 @@ impl ActionFilterOptionsInput {
         self.status = Some(status);
         self
     }
-    pub fn from(mut self, from: i64) -> Self {
+    /// Filter from this block height, **inclusive**.
+    pub fn from(mut self, from: i32) -> Self {
         self.from = Some(from);
         self
     }
-    pub fn to(mut self, to: i64) -> Self {
+    /// Filter to this block height, **exclusive**.
+    pub fn to(mut self, to: i32) -> Self {
         self.to = Some(to);
         self
     }
@@ -117,19 +153,26 @@ impl ActionFilterOptionsInput {
 /// The block range is required, unlike the event and action filters: the
 /// server bounds the span by its configured `BLOCK_RANGE_SIZE`. `from` is
 /// inclusive and `to` is exclusive.
+///
+/// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
+/// A height computed from a `u64` now fails to compile instead of coming back
+/// as a runtime GraphQL validation error. Output heights stay `i64` — widening
+/// an output is safe and the server already sends values as `Int`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationKeyUpdateFilterInput {
     pub verification_key_hash: String,
-    pub from: i64,
-    pub to: i64,
+    /// Inclusive lower block-height bound. `Int` is 32-bit — see the type doc.
+    pub from: i32,
+    /// Exclusive upper block-height bound. `Int` is 32-bit — see the type doc.
+    pub to: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<BlockStatusFilter>,
 }
 
 impl VerificationKeyUpdateFilterInput {
     /// Search `[from, to)` for account updates that set `verification_key_hash`.
-    pub fn new(verification_key_hash: impl Into<String>, from: i64, to: i64) -> Self {
+    pub fn new(verification_key_hash: impl Into<String>, from: i32, to: i32) -> Self {
         Self {
             verification_key_hash: verification_key_hash.into(),
             from,
@@ -145,12 +188,17 @@ impl VerificationKeyUpdateFilterInput {
 }
 
 /// Filter blocks by height, date, or canonical status.
+///
+/// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
+/// A height computed from a `u64` now fails to compile instead of coming back
+/// as a runtime GraphQL validation error. Output heights stay `i64` — widening
+/// an output is safe and the server already sends values as `Int`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BlockQueryInput {
     #[serde(rename = "blockHeight_gte", skip_serializing_if = "Option::is_none")]
-    pub block_height_gte: Option<i64>,
+    pub block_height_gte: Option<i32>,
     #[serde(rename = "blockHeight_lt", skip_serializing_if = "Option::is_none")]
-    pub block_height_lt: Option<i64>,
+    pub block_height_lt: Option<i32>,
     /// Inclusive lower bound, as an ISO-8601 / RFC 3339 instant.
     ///
     /// The server coerces this with JavaScript's `new Date(value).getTime()`.
@@ -233,6 +281,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TransactionInfo {
     pub status: String,
     pub hash: String,
@@ -246,6 +295,7 @@ pub struct TransactionInfo {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct EventData {
     pub account_update_id: String,
     pub transaction_info: Option<TransactionInfo>,
@@ -256,6 +306,7 @@ pub struct EventData {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ActionData {
     pub account_update_id: String,
     pub transaction_info: Option<TransactionInfo>,
@@ -266,6 +317,7 @@ pub struct ActionData {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct BlockInfo {
     pub height: i64,
     pub state_hash: String,
@@ -277,6 +329,12 @@ pub struct BlockInfo {
     /// **Not** ISO-8601 — an RFC 3339 parser rejects it, and reading it as
     /// seconds puts the block in 1970. Parse the integer first. Contrast
     /// [`Block::date_time`], a few fields away, which *is* ISO-8601.
+    /// Unix time in **milliseconds** as a decimal string, e.g.
+    /// `"1692054601000"`.
+    ///
+    /// Not ISO-8601 — see [`Block::date_time`], which is the other encoding
+    /// this schema uses. Parsing this one with an RFC 3339 parser fails, and
+    /// reading it as seconds puts the block in the wrong century.
     pub timestamp: String,
     pub global_slot_since_hardfork: i64,
     pub global_slot_since_genesis: i64,
@@ -285,6 +343,7 @@ pub struct BlockInfo {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ActionStates {
     pub action_state_one: Option<String>,
     pub action_state_two: Option<String>,
@@ -295,6 +354,7 @@ pub struct ActionStates {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct EventOutput {
     pub block_info: Option<BlockInfo>,
     pub event_data: Option<Vec<Option<EventData>>>,
@@ -302,6 +362,7 @@ pub struct EventOutput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ActionOutput {
     pub block_info: Option<BlockInfo>,
     pub transaction_info: Option<TransactionInfo>,
@@ -312,6 +373,7 @@ pub struct ActionOutput {
 /// An applied account update that set a verification key.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct VerificationKeyUpdate {
     pub account_update_id: String,
     /// The account whose verification key was set.
@@ -324,6 +386,7 @@ pub struct VerificationKeyUpdate {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct MaxBlockHeightInfo {
     pub canonical_max_block_height: i64,
     pub pending_max_block_height: i64,
@@ -331,11 +394,13 @@ pub struct MaxBlockHeightInfo {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct NetworkStateOutput {
     pub max_block_height: Option<MaxBlockHeightInfo>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct UserCommand {
     pub hash: String,
     pub kind: String,
@@ -352,6 +417,7 @@ pub struct UserCommand {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ZkAppCommand {
     pub hash: String,
     pub fee_payer: String,
@@ -362,6 +428,7 @@ pub struct ZkAppCommand {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct FeeTransfer {
     pub recipient: String,
     pub fee: String,
@@ -376,6 +443,7 @@ pub struct FeeTransfer {
 /// and are empty otherwise. `Block::parent_hash` is `""` under the same flag.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct BlockTransactions {
     pub coinbase: String,
     pub user_commands: Vec<UserCommand>,
@@ -385,6 +453,7 @@ pub struct BlockTransactions {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct Block {
     pub block_height: i64,
     pub creator: String,
@@ -395,6 +464,10 @@ pub struct Block {
     /// The server derives it from the same archive column that
     /// [`BlockInfo::timestamp`] exposes raw, so the two describe the same kind
     /// of value in two different encodings.
+    /// ISO-8601 / RFC 3339, e.g. `"2023-08-14T22:30:01.000Z"`.
+    ///
+    /// Not the same encoding as [`BlockInfo::timestamp`], which is Unix
+    /// milliseconds as a decimal string despite having the same Rust type.
     pub date_time: String,
     pub transactions: BlockTransactions,
 }

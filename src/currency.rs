@@ -33,7 +33,13 @@ impl Currency {
 
     /// Parse a nanomina-decimal string as it appears in Archive-Node-API
     /// responses (coinbase, fee, user-command amounts).
+    ///
+    /// Digits only. `u64::from_str` would accept a leading `+`, which no
+    /// server ever sends and which this function documents as invalid.
     pub fn from_graphql(s: &str) -> Result<Self> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::InvalidCurrency(s.to_string()));
+        }
         s.parse::<u64>()
             .map(Self)
             .map_err(|_| Error::InvalidCurrency(s.to_string()))
@@ -83,8 +89,15 @@ impl fmt::Display for Currency {
 
 impl std::ops::Add for Currency {
     type Output = Currency;
+
+    /// Panics on overflow, in **every** profile.
+    ///
+    /// `self.0 + rhs.0` panics only in debug; in release — the profile users
+    /// ship — it wrapped, so an overflow produced a silently wrong amount.
+    /// This matches the already-documented behaviour of the `Sub` impl.
+    /// Use [`Currency::checked_add`] when the value is not already bounded.
     fn add(self, rhs: Self) -> Self::Output {
-        Currency(self.0 + rhs.0)
+        Currency(self.0.checked_add(rhs.0).expect("currency overflow"))
     }
 }
 
@@ -98,15 +111,20 @@ impl std::ops::Sub for Currency {
 
 impl std::ops::Mul<u64> for Currency {
     type Output = Currency;
+
+    /// Panics on overflow, in **every** profile, like the `Add` impl.
+    /// Use [`Currency::checked_mul`] when the scalar is not already bounded.
     fn mul(self, rhs: u64) -> Self::Output {
-        Currency(self.0 * rhs)
+        Currency(self.0.checked_mul(rhs).expect("currency overflow"))
     }
 }
 
 impl std::ops::Mul<Currency> for u64 {
     type Output = Currency;
+
+    /// Panics on overflow, in **every** profile, like the `Add` impl.
     fn mul(self, rhs: Currency) -> Self::Output {
-        Currency(self * rhs.0)
+        Currency(self.checked_mul(rhs.0).expect("currency overflow"))
     }
 }
 
@@ -124,6 +142,16 @@ fn parse_decimal(s: &str) -> Result<u64> {
         Some((w, f)) => (w, f),
         None => (s, ""),
     };
+
+    // u64::from_str accepts a leading '+', and each half is padded before
+    // parsing, so "1.+5" was not merely tolerated — it became "+50000000" and
+    // parsed as 0.05 MINA. The value was wrong, not just the leniency.
+    // Require both halves to be ASCII digits or empty.
+    for half in [whole_str, frac_str] {
+        if !half.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::InvalidCurrency(s_orig.to_string()));
+        }
+    }
 
     let whole: u64 = if whole_str.is_empty() {
         0
@@ -157,6 +185,62 @@ fn parse_decimal(s: &str) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The overflow tests below must hold in release too: `+` and `*` used to
+    // wrap there and yield a silently wrong amount, while panicking only in
+    // debug. Run with `cargo test --release` to check the profile that
+    // actually shipped.
+    #[test]
+    #[should_panic(expected = "currency overflow")]
+    fn add_panics_on_overflow_in_every_profile() {
+        let _ = Currency::from_nanomina(u64::MAX) + Currency::from_nanomina(1);
+    }
+
+    #[test]
+    #[should_panic(expected = "currency overflow")]
+    fn mul_panics_on_overflow_in_every_profile() {
+        let _ = Currency::from_nanomina(u64::MAX / 2 + 1) * 2u64;
+    }
+
+    #[test]
+    #[should_panic(expected = "currency overflow")]
+    fn scalar_mul_panics_on_overflow_in_every_profile() {
+        let _ = 2u64 * Currency::from_nanomina(u64::MAX / 2 + 1);
+    }
+
+    #[test]
+    fn checked_variants_report_overflow_instead_of_panicking() {
+        assert!(Currency::from_nanomina(u64::MAX)
+            .checked_add(Currency::from_nanomina(1))
+            .is_none());
+        assert!(Currency::from_nanomina(u64::MAX / 2 + 1)
+            .checked_mul(2)
+            .is_none());
+    }
+
+    #[test]
+    fn rejects_a_leading_plus() {
+        // "1.+5" was not merely accepted: it became "+50000000" and parsed as
+        // 0.05 MINA, so the value was wrong.
+        for input in ["1.+5", "+1", "+1.5", "1.5+"] {
+            assert!(
+                Currency::from_mina(input).is_err(),
+                "from_mina({input:?}) must be rejected"
+            );
+        }
+        for input in ["+500", "+0", " 500"] {
+            assert!(
+                Currency::from_graphql(input).is_err(),
+                "from_graphql({input:?}) must be rejected"
+            );
+        }
+        // Still accepted.
+        assert_eq!(
+            Currency::from_mina("1.5").unwrap().nanomina(),
+            1_500_000_000
+        );
+        assert_eq!(Currency::from_graphql("500").unwrap().nanomina(), 500);
+    }
 
     #[test]
     fn from_mina_integer() {
