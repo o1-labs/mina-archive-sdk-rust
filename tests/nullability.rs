@@ -24,12 +24,12 @@ async fn server_returning(body: serde_json::Value) -> (MockServer, ArchiveClient
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .mount(&server)
         .await;
-    let client = ArchiveClient::with_config(ClientConfig {
-        graphql_uri: server.uri(),
-        retries: 1,
-        retry_delay: Duration::from_millis(1),
-        timeout: Duration::from_secs(5),
-    });
+    let client = ArchiveClient::with_config(
+        ClientConfig::new(server.uri())
+            .attempts(1)
+            .retry_delay(Duration::from_millis(1))
+            .timeout(Duration::from_secs(5)),
+    );
     (server, client)
 }
 

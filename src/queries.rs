@@ -1,6 +1,6 @@
 //! Hand-written GraphQL query strings. Each maps 1:1 to a method on
 //! [`ArchiveClient`](crate::ArchiveClient). For narrower selections, send a
-//! custom query through [`ArchiveClient::query`].
+//! custom query through [`ArchiveClient::query`](crate::ArchiveClient::query).
 
 pub const EVENTS_QUERY: &str = r#"
 query GetEvents($input: EventFilterOptionsInput!) {

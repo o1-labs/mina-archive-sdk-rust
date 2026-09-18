@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use mina_archive_sdk::{
     ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
-    ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
-    VerificationKeyUpdateFilterInput,
+    ClientConfig, EventFilterOptionsInput, GetBlocksOptions, VerificationKeyUpdateFilterInput,
 };
 
 const FIXTURE_ADDRESS: &str = "B62qiaEMrWiYdK7LcJ2ScdMyG8LzUxi7yaw17XvBD34on7UKfhAkRML";
@@ -23,33 +22,38 @@ const FIXTURE_VERIFICATION_KEY_HASH: &str =
 fn client() -> ArchiveClient {
     let uri = std::env::var("ARCHIVE_GRAPHQL_URI")
         .expect("set ARCHIVE_GRAPHQL_URI to a running Archive-Node-API endpoint");
-    ArchiveClient::with_config(ClientConfig {
-        graphql_uri: uri,
-        retries: 2,
-        retry_delay: Duration::from_secs(1),
-        timeout: Duration::from_secs(30),
-    })
+    ArchiveClient::with_config(
+        ClientConfig::new(uri)
+            .attempts(2)
+            .retry_delay(Duration::from_secs(1))
+            .timeout(Duration::from_secs(30)),
+    )
 }
 
 #[tokio::test]
 #[ignore = "requires a running Archive-Node-API server (ARCHIVE_GRAPHQL_URI)"]
 async fn network_state_returns_max_heights() {
-    // NOTE: against the static archive_db.sql fixture, the upstream
-    // network-service resolver crashes if either canonical or pending rows
-    // are missing (see Archive-Node-API's `src/services/network-service/
-    // network-service.ts`). Tolerate that GraphQL error; once upstream is
-    // patched, drop the match arm and keep the strict assertion.
-    match client().get_network_state().await {
-        Ok(state) => {
-            let max = state.max_block_height.expect("max_block_height present");
-            assert!(max.canonical_max_block_height >= 0);
-        }
-        Err(Error::Graphql { messages, .. }) => {
-            eprintln!(
-                "network_state returned a GraphQL error (known upstream issue against fixture): {messages}"
-            );
-        }
-        Err(e) => panic!("unexpected error: {e}"),
+    // The upstream resolver used to crash when either the canonical or the
+    // pending row was missing, and this test tolerated the resulting GraphQL
+    // error. It now returns maxBlockHeight: null for an empty archive
+    // (network-service.ts), so a GraphQL error here is a real failure.
+    //
+    // `None` stays legal — maxBlockHeight is nullable by design — so this
+    // asserts null-or-sane rather than `.expect(...)`, which panicked against
+    // a legally-empty archive while the SDK itself had correctly returned
+    // Ok(None).
+    let state = client()
+        .get_network_state()
+        .await
+        .expect("network_state must not fail");
+
+    if let Some(max) = state.max_block_height {
+        assert!(max.canonical_max_block_height >= 0);
+        assert!(max.pending_max_block_height >= 0);
+        assert!(
+            max.pending_max_block_height >= max.canonical_max_block_height,
+            "canonical <= pending by definition"
+        );
     }
 }
 
@@ -81,14 +85,15 @@ async fn actions_against_fixture_address() {
 #[ignore = "requires a running Archive-Node-API server (ARCHIVE_GRAPHQL_URI)"]
 async fn blocks_desc_returns_ordered_results() {
     let blocks = client()
-        .get_blocks(GetBlocksOptions {
-            query: Some(BlockQueryInput {
-                canonical: Some(true),
-                ..Default::default()
-            }),
-            limit: Some(3),
-            sort_by: Some(BlockSortBy::Desc),
-        })
+        .get_blocks(
+            GetBlocksOptions::default()
+                .query(BlockQueryInput {
+                    canonical: Some(true),
+                    ..Default::default()
+                })
+                .limit(3)
+                .sort_by(BlockSortBy::Desc),
+        )
         .await
         .unwrap();
     // `[Block]!` has nullable elements, so the ordering check needs two

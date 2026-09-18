@@ -17,7 +17,15 @@ mina-archive-sdk = "2.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
-Tested on Rust stable.
+Minimum supported Rust version: **1.88**, declared as `rust-version` in
+`Cargo.toml` and built in CI on exactly that toolchain, so a dependency bump
+cannot raise the real floor without failing the build.
+
+Requires a Tokio runtime **with the time driver enabled** — `reqwest`'s
+per-request timeout needs it, and without it every query panics with "A Tokio
+1.x context was found, but timers are disabled". `#[tokio::main]` and
+`#[tokio::test]` enable it; a hand-built `Builder::new_current_thread()` does
+not unless you call `.enable_time()`.
 
 ## Quick start
 
@@ -76,13 +84,21 @@ which is what makes the response look healthy rather than obviously truncated.
 use std::time::Duration;
 use mina_archive_sdk::{ArchiveClient, ClientConfig};
 
-let client = ArchiveClient::with_config(ClientConfig {
-    graphql_uri: "https://archive.example/".to_string(),
-    retries: 5,
-    retry_delay: Duration::from_secs(10),
-    timeout: Duration::from_secs(60),
-});
+let client = ArchiveClient::with_config(
+    ClientConfig::new("https://archive.example/")
+        .attempts(5)
+        .retry_delay(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60)),
+);
 ```
+
+`ClientConfig` is `#[non_exhaustive]`, so build it through the setters rather
+than with a struct literal — that is what lets a new knob be added under a
+minor release instead of a major one. The same applies to `GetBlocksOptions`.
+
+**`attempts` is the total, including the first try.** The underlying field is
+named `retries`, but 5 means five requests, not one plus five. `attempts(1)`
+disables retrying.
 
 ### Dates and times
 
@@ -130,8 +146,16 @@ let coinbase = Currency::from_graphql("720000000000").unwrap();
 assert_eq!(coinbase.mina(), "720.000000000");
 
 let fee = Currency::from_mina("0.01").unwrap();
-let total = coinbase + fee;
+
+// `+` and `*` panic on overflow in EVERY profile — they used to wrap silently
+// in release, producing a wrong amount. Use the checked forms for values that
+// are not already bounded.
+let total = coinbase.checked_add(fee).expect("no overflow");
 ```
+
+Reaching an overflow needs about 1.8e19 nanomina, roughly sixteen times the
+total MINA supply, so it is not reachable from server data — but it is
+reachable from `Currency::from_nanomina` or from accumulation in caller code.
 
 ### Errors
 
@@ -326,6 +350,7 @@ for group in events {
 ```sh
 cargo build
 cargo test --lib --tests       # unit + wiremock tests, no infra needed
+cargo test --doc               # rustdoc examples — NOT covered by the line above
 cargo fmt --check
 cargo clippy --all-targets
 ```
