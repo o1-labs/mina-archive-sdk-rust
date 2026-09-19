@@ -313,7 +313,13 @@ impl ArchiveClient {
     // -- Typed queries --
 
     /// Query archived events for a zkApp account.
-    pub async fn get_events(&self, input: EventFilterOptionsInput) -> Result<Vec<EventOutput>> {
+    ///
+    /// The SDL types this `[EventOutput]!`: the list is always present but its
+    /// elements are nullable, so each element comes back as an [`Option`].
+    pub async fn get_events(
+        &self,
+        input: EventFilterOptionsInput,
+    ) -> Result<Vec<Option<EventOutput>>> {
         let data = self
             .execute_query(
                 queries::EVENTS_QUERY,
@@ -325,7 +331,13 @@ impl ArchiveClient {
     }
 
     /// Query archived actions for a zkApp account.
-    pub async fn get_actions(&self, input: ActionFilterOptionsInput) -> Result<Vec<ActionOutput>> {
+    ///
+    /// The SDL types this `[ActionOutput]!`: the list is always present but its
+    /// elements are nullable, so each element comes back as an [`Option`].
+    pub async fn get_actions(
+        &self,
+        input: ActionFilterOptionsInput,
+    ) -> Result<Vec<Option<ActionOutput>>> {
         let data = self
             .execute_query(
                 queries::ACTIONS_QUERY,
@@ -346,13 +358,16 @@ impl ArchiveClient {
 
     /// Query blocks by height/date range and chain status.
     ///
+    /// The SDL types this `[Block]!`: the list is always present but its
+    /// elements are nullable, so each element comes back as an [`Option`].
+    ///
     /// Transaction detail is only populated when the server sets
     /// `ENABLE_BLOCK_TRANSACTION_DETAILS=true`, which **defaults to `false`**.
     /// Against a stock server every returned block has `parent_hash == ""` and
     /// empty `user_commands`, `zkapp_commands` and `fee_transfer`, while
     /// `coinbase` **is** populated — so the response looks healthy and is
     /// easily mistaken for an empty chain or an SDK bug.
-    pub async fn get_blocks(&self, opts: GetBlocksOptions) -> Result<Vec<Block>> {
+    pub async fn get_blocks(&self, opts: GetBlocksOptions) -> Result<Vec<Option<Block>>> {
         let vars = json!({
             "query": opts.query,
             "limit": opts.limit,
@@ -462,7 +477,7 @@ impl ArchiveClient {
     pub async fn get_events_with_errors(
         &self,
         input: EventFilterOptionsInput,
-    ) -> Result<Response<Vec<EventOutput>>> {
+    ) -> Result<Response<Vec<Option<EventOutput>>>> {
         self.typed_with_errors(
             queries::EVENTS_QUERY,
             Some(json!({ "input": input })),
@@ -476,7 +491,7 @@ impl ArchiveClient {
     pub async fn get_actions_with_errors(
         &self,
         input: ActionFilterOptionsInput,
-    ) -> Result<Response<Vec<ActionOutput>>> {
+    ) -> Result<Response<Vec<Option<ActionOutput>>>> {
         self.typed_with_errors(
             queries::ACTIONS_QUERY,
             Some(json!({ "input": input })),
@@ -490,7 +505,7 @@ impl ArchiveClient {
     pub async fn get_blocks_with_errors(
         &self,
         opts: GetBlocksOptions,
-    ) -> Result<Response<Vec<Block>>> {
+    ) -> Result<Response<Vec<Option<Block>>>> {
         self.typed_with_errors(
             queries::BLOCKS_QUERY,
             Some(json!({

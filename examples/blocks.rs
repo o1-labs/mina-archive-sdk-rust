@@ -27,7 +27,10 @@ async fn main() -> mina_archive_sdk::Result<()> {
         .await?;
 
     println!("got {} block(s)", blocks.len());
-    for block in blocks {
+    // `blocks` is `[Block]!` in the SDL: the list is always present, but any
+    // element may be null, so guard each one. `.flatten()` drops the nulls;
+    // match on the Option instead if you need to see them.
+    for block in blocks.into_iter().flatten() {
         let coinbase = Currency::from_graphql(&block.transactions.coinbase)?;
         let prefix: String = block.creator.chars().take(12).collect();
         println!(

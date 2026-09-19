@@ -57,7 +57,8 @@ async fn get_events_happy_path() {
         .await
         .unwrap();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].block_info.as_ref().unwrap().height, 100);
+    let event = events[0].as_ref().expect("element is not null");
+    assert_eq!(event.block_info.as_ref().unwrap().height, 100);
 }
 
 #[tokio::test]
@@ -114,10 +115,8 @@ async fn get_actions_happy_path() {
         .await
         .unwrap();
     assert_eq!(actions.len(), 1);
-    assert_eq!(
-        actions[0].action_state.action_state_one.as_deref(),
-        Some("a")
-    );
+    let action = actions[0].as_ref().expect("element is not null");
+    assert_eq!(action.action_state.action_state_one.as_deref(), Some("a"));
 }
 
 #[tokio::test]
@@ -640,7 +639,8 @@ async fn partial_data_and_errors_are_both_reachable() {
     // Both halves, from the single call.
     let events = resp.data.as_ref().expect("the decoded event must survive");
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].block_info.as_ref().unwrap().height, 100);
+    let event = events[0].as_ref().expect("element is not null");
+    assert_eq!(event.block_info.as_ref().unwrap().height, 100);
     assert_eq!(resp.errors.len(), 1);
     assert_eq!(resp.errors[0].message, "partial");
     assert!(resp.is_partial());

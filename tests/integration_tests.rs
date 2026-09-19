@@ -91,11 +91,15 @@ async fn blocks_desc_returns_ordered_results() {
         })
         .await
         .unwrap();
-    if blocks.len() >= 2 {
-        assert!(
-            blocks[0].block_height >= blocks[1].block_height,
-            "DESC sort honored"
-        );
+    // `[Block]!` has nullable elements, so the ordering check needs two
+    // non-null neighbours rather than two positions.
+    let heights: Vec<i64> = blocks
+        .iter()
+        .flatten()
+        .map(|block| block.block_height)
+        .collect();
+    if heights.len() >= 2 {
+        assert!(heights[0] >= heights[1], "DESC sort honored");
     }
 }
 

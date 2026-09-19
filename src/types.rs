@@ -239,7 +239,9 @@ pub struct TransactionInfo {
     pub memo: String,
     pub authorization_kind: String,
     pub sequence_number: i64,
-    pub zkapp_account_update_ids: Vec<i64>,
+    /// Element-nullable in the SDL (`[Int]!`), so a member may be `null` even
+    /// though the list itself is always present.
+    pub zkapp_account_update_ids: Vec<Option<i64>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -247,7 +249,9 @@ pub struct TransactionInfo {
 pub struct EventData {
     pub account_update_id: String,
     pub transaction_info: Option<TransactionInfo>,
-    pub data: Vec<String>,
+    /// Element-nullable in the SDL (`[String]!`), so a member may be `null`
+    /// even though the list itself is always present.
+    pub data: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -255,7 +259,9 @@ pub struct EventData {
 pub struct ActionData {
     pub account_update_id: String,
     pub transaction_info: Option<TransactionInfo>,
-    pub data: Vec<String>,
+    /// Element-nullable in the SDL (`[String]!`), so a member may be `null`
+    /// even though the list itself is always present.
+    pub data: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

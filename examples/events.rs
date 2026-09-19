@@ -22,7 +22,10 @@ async fn main() -> mina_archive_sdk::Result<()> {
         .await?;
 
     println!("got {} event group(s)", events.len());
-    for group in events.into_iter().take(5) {
+    // `events` is `[EventOutput]!` in the SDL: the list is always present, but
+    // any element may be null, so guard each one. `.flatten()` drops the nulls;
+    // match on the Option instead if you need to see them.
+    for group in events.into_iter().flatten().take(5) {
         let height = group
             .block_info
             .map(|b| b.height.to_string())

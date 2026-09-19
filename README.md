@@ -13,7 +13,7 @@ Companion to the daemon-targeting [`mina-sdk`](https://crates.io/crates/mina-sdk
 
 ```toml
 [dependencies]
-mina-archive-sdk = "1.0"
+mina-archive-sdk = "2.0"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -54,10 +54,10 @@ Each method on `ArchiveClient` maps 1:1 to a GraphQL query in the [Archive-Node-
 
 | Method | Returns | Description |
 | --- | --- | --- |
-| `get_events(input)` | `Vec<EventOutput>` | Events emitted by a zkApp account. |
-| `get_actions(input)` | `Vec<ActionOutput>` | Actions dispatched from a zkApp account. |
+| `get_events(input)` | `Vec<Option<EventOutput>>` | Events emitted by a zkApp account. |
+| `get_actions(input)` | `Vec<Option<ActionOutput>>` | Actions dispatched from a zkApp account. |
 | `get_network_state()` | `NetworkStateOutput` | Archive's max canonical / pending block heights. |
-| `get_blocks(opts)` | `Vec<Block>` | Blocks filtered by height/date range and chain status. Transaction detail needs `ENABLE_BLOCK_TRANSACTION_DETAILS` on the server — see below. |
+| `get_blocks(opts)` | `Vec<Option<Block>>` | Blocks filtered by height/date range and chain status. Transaction detail needs `ENABLE_BLOCK_TRANSACTION_DETAILS` on the server — see below. |
 | `get_verification_key_updates(input)` | `Vec<VerificationKeyUpdate>` | Applied account updates that set a given verification key, within a required block range. |
 | `query(gql)` | builder | Arbitrary GraphQL through the same retry path. |
 | `execute_query(gql, vars, name)` | `serde_json::Value` | Low-level escape hatch returning the raw `data` field. |
@@ -243,17 +243,83 @@ See `examples/`:
 - `blocks.rs` — get the latest canonical blocks with currency parsing
 - `network_state.rs` — check archive sync state
 
+## Nullable elements
+
+`get_events`, `get_actions` and `get_blocks` are `[T]!` in the SDL: the list
+itself is always present, but **every element is nullable**, and the server is
+free to return `null` there indefinitely — under the upstream versioning policy
+`T` → `T!` is the only safe direction, so a null element never becomes a
+breaking change. The same holds for `EventData::data`, `ActionData::data` and
+`TransactionInfo::zkapp_account_update_ids`, which are `[String]!` and `[Int]!`
+with nullable members.
+
+Those positions are therefore `Option`-wrapped. The alternative — a
+`deserialize_with` that silently drops nulls — was rejected: it converts a
+visible failure into silently missing data.
+
+`get_verification_key_updates` is the exception: its SDL type is
+`[VerificationKeyUpdate!]!`, elements included, so it returns
+`Vec<VerificationKeyUpdate>` with no `Option`.
+
 ## Version compatibility
 
-This SDK versions in lockstep with the [Archive-Node-API](https://github.com/o1-labs/Archive-Node-API) schema it speaks.
+The crate exports the schema version it speaks:
+
+```rust
+use mina_archive_sdk::SCHEMA_VERSION; // "1.0" — the Archive-Node-API schema major.minor
+```
+
+**`SCHEMA_VERSION`, not the crate version, is the compatibility check.** The
+crate version is plain semver about the SDK's own surface:
 
 | Part | Meaning |
 | --- | --- |
-| **Major** | The schema major version. A breaking schema change moves both. |
-| **Minor** | The schema minor version. A new query or argument moves both. |
-| **Patch** | SDK-only changes — fixes, docs, dependencies. Independent of the server. |
+| **Major** | A breaking change to the SDK's API — whether the schema forced it or not. |
+| **Minor** | Additive: a new query, a new option, a new helper. |
+| **Patch** | Fixes, docs, dependencies. |
 
-So an SDK on `1.0.x` speaks the `1.0.x` schema, and matching the first two numbers is the whole compatibility check. The schema is additive within a major version, so an older SDK keeps working against a newer server; it simply cannot reach what was added after it.
+The two still move together in the common cases: a breaking schema change
+breaks the SDK surface, so it takes a major, and a schema minor that adds a
+query is an SDK minor. What separates them is an **SDK-only** breaking change,
+which now has a home. 2.0.0 is exactly that — it wrapped six positions in
+`Option` so the `null`s the 1.0 schema always permitted stop failing the whole
+query, and it speaks the same `1.0` schema 1.0.x did.
+
+The schema is additive within a major version, so a crate whose
+`SCHEMA_VERSION` major matches the server keeps working against a newer server;
+it simply cannot reach what was added after it.
+
+Earlier releases followed a stricter rule in which the crate's major.minor
+*was* the schema version. That rule left no position for a breaking SDK-only
+fix, which is why it was amended in 2.0.0.
+
+### Migrating from 1.x to 2.0
+
+`get_events`, `get_actions` and `get_blocks` now return `Vec<Option<T>>`, and
+`EventData::data`, `ActionData::data` and
+`TransactionInfo::zkapp_account_update_ids` now hold `Option` members. This is
+strictly a widening — 1.x did not return these `None`s, it returned
+`Err(Error::Decode)` for the entire query and gave you no way to reach the
+elements that did decode.
+
+```rust,ignore
+// 1.x
+for group in events { /* ... */ }
+
+// 2.0 — drop the nulls
+for group in events.into_iter().flatten() { /* ... */ }
+
+// 2.0 — or handle them
+for group in events {
+    match group {
+        Some(group) => { /* ... */ }
+        None => { /* the server returned a null element */ }
+    }
+}
+```
+
+`get_network_state` and `get_verification_key_updates` are unchanged —
+`[VerificationKeyUpdate!]!` has non-nullable elements and was already correct.
 
 ## Development
 
