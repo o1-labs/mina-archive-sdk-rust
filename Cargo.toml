@@ -2,6 +2,9 @@
 name = "mina-archive-sdk"
 version = "2.0.0"
 edition = "2021"
+# Verified in CI: the crate and its locked dependency graph build and test on
+# exactly this toolchain. encoding_rs and the icu_* crates set the floor.
+rust-version = "1.88"
 license = "Apache-2.0"
 description = "Rust SDK for interacting with Mina Archive Node GraphQL endpoints"
 repository = "https://github.com/o1-labs/mina-archive-sdk-rust"
@@ -14,8 +17,10 @@ categories = ["api-bindings", "cryptography::cryptocurrencies"]
 exclude = [".github/", "scripts/", "tests/integration_tests.rs"]
 
 [package.metadata.docs.rs]
+# The crate declares no [features], and no #[cfg(docsrs)] appears in src/, so
+# `all-features` and the `docsrs` cfg configured nothing. Kept only the
+# all-features flag, which stays correct if features are ever added.
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }

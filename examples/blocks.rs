@@ -16,14 +16,15 @@ async fn main() -> mina_archive_sdk::Result<()> {
     let client = ArchiveClient::new(&uri);
 
     let blocks = client
-        .get_blocks(GetBlocksOptions {
-            query: Some(BlockQueryInput {
-                canonical: Some(true),
-                ..Default::default()
-            }),
-            limit: Some(5),
-            sort_by: Some(BlockSortBy::Desc),
-        })
+        .get_blocks(
+            GetBlocksOptions::default()
+                .query(BlockQueryInput {
+                    canonical: Some(true),
+                    ..Default::default()
+                })
+                .limit(5)
+                .sort_by(BlockSortBy::Desc),
+        )
         .await?;
 
     println!("got {} block(s)", blocks.len());

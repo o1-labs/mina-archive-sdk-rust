@@ -1,0 +1,3 @@
+# Keep clippy's suggestions within the MSRV that Cargo.toml declares, so a lint
+# cannot propose something that fails to compile on the floor toolchain.
+msrv = "1.88"
