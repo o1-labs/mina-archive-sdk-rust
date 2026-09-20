@@ -1,7 +1,13 @@
 use std::fmt;
 
 /// Errors returned by the Mina Archive SDK.
+///
+/// `#[non_exhaustive]`, so a `match` needs a `_` arm. A new failure mode — a
+/// new server error class, a new transport condition — must not be an SDK
+/// major release, and adding a variant to an exhaustively matched enum is
+/// breaking.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     /// The GraphQL endpoint returned one or more errors. Not retried.
     ///

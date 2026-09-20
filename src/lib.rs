@@ -34,6 +34,23 @@
 //! # }
 //! ```
 //!
+//! # Runtime requirements
+//!
+//! This crate requires a Tokio runtime **with the time driver enabled**.
+//! `reqwest`'s per-request timeout needs it, so on a runtime built without
+//! `enable_time()` every query panics with "A Tokio 1.x context was found, but
+//! timers are disabled". `#[tokio::main]` and `#[tokio::test]` enable it;
+//! a hand-built `Builder::new_current_thread()` does not unless you say so.
+//!
+//! ```no_run
+//! let runtime = tokio::runtime::Builder::new_current_thread()
+//!     .enable_time()
+//!     .enable_io()
+//!     .build()
+//!     .unwrap();
+//! # let _ = runtime;
+//! ```
+//!
 //! # Currency
 //!
 //! Coinbase / fee / user-command amounts are returned as nanomina decimal
