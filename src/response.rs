@@ -11,6 +11,7 @@ use crate::error::GraphqlErrorEntry;
 /// a total failure, which makes the rows that did succeed unrecoverable; the
 /// `*_with_errors` methods return this instead.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Response<T> {
     /// The decoded payload. `None` only when the server sent `"data": null`.
     pub data: Option<T>,

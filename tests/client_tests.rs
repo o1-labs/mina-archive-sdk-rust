@@ -551,6 +551,85 @@ async fn rate_limited_is_retried_then_succeeds() {
     );
 }
 
+/// `timeout` bounds one HTTP request; it never covered the sleep between
+/// attempts, so a server asking for `retry-after: 3600` parked the call for an
+/// hour whatever the timeout said. The ceiling turns that into an immediate
+/// `RateLimited` carrying the requested delay, so the caller decides.
+#[tokio::test]
+async fn retry_after_beyond_the_ceiling_returns_at_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "3600")
+                .set_body_json(json!({ "errors": [{ "message": "Too many requests" }] })),
+        )
+        .mount(&server)
+        .await;
+
+    // attempts(3) would retry, and retry_delay is irrelevant: what decides is
+    // that the server's 3600s ask exceeds the 60s ceiling.
+    let client = ArchiveClient::with_config(
+        ClientConfig::new(server.uri())
+            .attempts(3)
+            .retry_delay(Duration::from_millis(0))
+            .max_retry_after(Duration::from_secs(60))
+            .timeout(Duration::from_secs(5)),
+    );
+
+    let started = std::time::Instant::now();
+    let err = client.get_network_state().await.unwrap_err();
+    let elapsed = started.elapsed();
+
+    match &err {
+        mina_archive_sdk::Error::RateLimited { retry_after, .. } => {
+            assert_eq!(*retry_after, Some(Duration::from_secs(3600)));
+        }
+        other => panic!("expected Error::RateLimited, got {other:?}"),
+    }
+    // The point of the fix: it returned instead of sleeping.
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "call took {elapsed:?}; it slept on retry-after instead of returning"
+    );
+}
+
+/// Within the ceiling, retry-after is still honoured and the call still
+/// succeeds on the retry.
+#[tokio::test]
+async fn retry_after_within_the_ceiling_is_still_honoured() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "0")
+                .set_body_json(json!({ "errors": [{ "message": "Too many requests" }] })),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": { "networkState": { "maxBlockHeight": {
+                "canonicalMaxBlockHeight": 42, "pendingMaxBlockHeight": 43 } } },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = ArchiveClient::with_config(
+        ClientConfig::new(server.uri())
+            .attempts(3)
+            .retry_delay(Duration::from_millis(0))
+            .max_retry_after(Duration::from_secs(60))
+            .timeout(Duration::from_secs(5)),
+    );
+    let state = client.get_network_state().await.unwrap();
+    assert_eq!(
+        state.max_block_height.unwrap().canonical_max_block_height,
+        42
+    );
+}
+
 /// A 404 with a non-GraphQL body is the shape you get from POSTing to
 /// /graphql. It used to surface as "error decoding response body" or as
 /// "missing field", both of which misdirect the diagnosis.

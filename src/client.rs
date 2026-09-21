@@ -39,6 +39,14 @@ pub struct ClientConfig {
     pub retry_delay: Duration,
     /// Per-request HTTP timeout.
     pub timeout: Duration,
+    /// Ceiling on a server-supplied `retry-after` wait.
+    ///
+    /// [`ClientConfig::timeout`] bounds one HTTP request; it does **not**
+    /// cover the sleep between attempts, so without a ceiling a `retry-after`
+    /// of 86400 parks the call for a day. When the server asks for longer than
+    /// this, the call gives up at once and returns [`Error::RateLimited`]
+    /// carrying the requested delay, so the caller decides what to do.
+    pub max_retry_after: Duration,
 }
 
 impl Default for ClientConfig {
@@ -48,6 +56,7 @@ impl Default for ClientConfig {
             retries: 3,
             retry_delay: Duration::from_secs(5),
             timeout: Duration::from_secs(30),
+            max_retry_after: Duration::from_secs(60),
         }
     }
 }
@@ -84,6 +93,15 @@ impl ClientConfig {
     /// Set the per-request HTTP timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Set the ceiling on a server-supplied `retry-after` wait.
+    ///
+    /// `Duration::ZERO` never waits on `retry-after`: a 429 returns
+    /// [`Error::RateLimited`] on the first response.
+    pub fn max_retry_after(mut self, max: Duration) -> Self {
+        self.max_retry_after = max;
         self
     }
 }
@@ -244,10 +262,21 @@ impl ArchiveClient {
                             .unwrap_or_else(|| "Too many requests.".to_string());
                         warn!(query_name, attempt, ?rate.retry_after, "rate limited");
 
-                        if attempt < self.config.retries {
-                            tokio::time::sleep(rate.retry_after.unwrap_or(self.config.retry_delay))
-                                .await;
+                        // Wait only when the server's ask is within the
+                        // ceiling. `timeout` bounds a request, not this sleep,
+                        // so an unbounded wait here is unbounded for the call.
+                        let wait = rate.retry_after.unwrap_or(self.config.retry_delay);
+                        if attempt < self.config.retries && wait <= self.config.max_retry_after {
+                            tokio::time::sleep(wait).await;
                             continue;
+                        }
+                        if wait > self.config.max_retry_after {
+                            warn!(
+                                query_name,
+                                ?wait,
+                                max = ?self.config.max_retry_after,
+                                "retry-after exceeds the ceiling; not waiting"
+                            );
                         }
                         return Err(Error::RateLimited {
                             query_name: query_name.to_string(),

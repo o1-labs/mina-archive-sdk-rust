@@ -104,6 +104,17 @@ mod types;
 /// server; it simply cannot reach what was added after it.
 pub const SCHEMA_VERSION: &str = "1.0";
 
+/// The README's code fences, compiled as doctests.
+///
+/// `RUSTDOCFLAGS`/`RUSTFLAGS` never reached these: in-source examples are
+/// covered by `cargo test --doc`, README fences are covered by nothing, which
+/// is how the quick-start example went on not compiling. `#[cfg(doctest)]`
+/// keeps the README out of the rendered crate docs while still building every
+/// fence in it.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
+
 pub use client::{ArchiveClient, ClientConfig, GetBlocksOptions, QueryBuilder};
 pub use currency::Currency;
 pub use error::{codes, Error, GraphqlErrorEntry, Result};
