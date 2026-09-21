@@ -110,6 +110,7 @@ pub mod codes {
 /// unexpected error arrives with a generic message and no `extensions` at all.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct GraphqlErrorEntry {
     pub message: String,
     /// Shortcut for `extensions.code`, lifted during decoding. `None` for a

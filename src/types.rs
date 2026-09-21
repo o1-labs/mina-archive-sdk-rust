@@ -459,15 +459,12 @@ pub struct Block {
     pub creator: String,
     pub state_hash: String,
     pub parent_hash: String,
-    /// ISO-8601 instant, e.g. `"2023-08-14T23:10:01.000Z"`.
+    /// ISO-8601 / RFC 3339 instant, e.g. `"2023-08-14T23:10:01.000Z"`.
     ///
     /// The server derives it from the same archive column that
-    /// [`BlockInfo::timestamp`] exposes raw, so the two describe the same kind
-    /// of value in two different encodings.
-    /// ISO-8601 / RFC 3339, e.g. `"2023-08-14T22:30:01.000Z"`.
-    ///
-    /// Not the same encoding as [`BlockInfo::timestamp`], which is Unix
-    /// milliseconds as a decimal string despite having the same Rust type.
+    /// [`BlockInfo::timestamp`] exposes raw, so the two describe the same
+    /// instant in two different encodings: this one is ISO-8601, that one is
+    /// Unix milliseconds as a decimal string, despite the identical Rust type.
     pub date_time: String,
     pub transactions: BlockTransactions,
 }

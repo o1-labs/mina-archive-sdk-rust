@@ -43,7 +43,9 @@ async fn main() -> mina_archive_sdk::Result<()> {
             .to(200),
     ).await?;
 
-    for group in events {
+    // Root list elements are nullable: `get_events` returns
+    // `Vec<Option<EventOutput>>`, so a wire `null` is a `None` element.
+    for group in events.into_iter().flatten() {
         let height = group.block_info.map(|b| b.height).unwrap_or(-1);
         let count = group.event_data.map(|d| d.len()).unwrap_or(0);
         println!("block {height}: {count} event(s)");
@@ -88,7 +90,8 @@ let client = ArchiveClient::with_config(
     ClientConfig::new("https://archive.example/")
         .attempts(5)
         .retry_delay(Duration::from_secs(10))
-        .timeout(Duration::from_secs(60)),
+        .timeout(Duration::from_secs(60))
+        .max_retry_after(Duration::from_secs(60)),
 );
 ```
 
@@ -99,6 +102,13 @@ minor release instead of a major one. The same applies to `GetBlocksOptions`.
 **`attempts` is the total, including the first try.** The underlying field is
 named `retries`, but 5 means five requests, not one plus five. `attempts(1)`
 disables retrying.
+
+**`timeout` does not bound a `retry-after` wait.** It bounds one HTTP request.
+A 429 carries the server's `retry-after`, and honouring it means sleeping
+between attempts, which no request timeout covers — `retry-after: 86400` would
+park the call for a day. `max_retry_after` (default 60s) is the ceiling: when
+the server asks for longer, the call returns `Error::RateLimited` immediately,
+carrying the requested delay so you can decide whether to wait, queue or fail.
 
 ### Dates and times
 
