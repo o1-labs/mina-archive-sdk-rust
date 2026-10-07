@@ -23,9 +23,7 @@
 //!         .to(200),
 //! ).await?;
 //!
-//! // `[EventOutput]!` has nullable elements, so each one arrives as an
-//! // `Option`. `.flatten()` drops the nulls; match on it to see them.
-//! for group in events.into_iter().flatten() {
+//! for group in events {
 //!     let height = group.block_info.map(|b| b.height).unwrap_or(-1);
 //!     let count = group.event_data.map(|d| d.len()).unwrap_or(0);
 //!     println!("block {height}: {count} event(s)");
@@ -93,16 +91,13 @@ pub mod queries;
 mod response;
 mod types;
 
-/// The Archive-Node-API schema version this crate speaks.
+/// The Archive-Node-API schema version (`MAJOR.MINOR`) this crate speaks.
 ///
-/// This constant — not the crate version — is the compatibility check. The
-/// crate version is plain semver about the SDK's own surface, so an SDK-only
-/// breaking change can take a major without claiming the schema moved.
-///
-/// The schema is additive within a major version, so a crate whose
-/// `SCHEMA_VERSION` major matches the server keeps working against a newer
-/// server; it simply cannot reach what was added after it.
-pub const SCHEMA_VERSION: &str = "1.0";
+/// The server, its schema and this SDK share one major version: the crate
+/// major equals the `SCHEMA_VERSION` major. A server with the same major is
+/// compatible; a higher server minor only adds features this crate may not
+/// wrap yet.
+pub const SCHEMA_VERSION: &str = "2.0";
 
 /// The README's code fences, compiled as doctests.
 ///
