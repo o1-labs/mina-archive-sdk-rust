@@ -1,23 +1,24 @@
-//! The six SDL-nullable positions that used to be modelled as non-optional.
+//! The eight list positions schema 2.0 declares with non-null elements.
 //!
-//! Each test mounts a wiremock endpoint returning a `null` in exactly one of
-//! those positions, with **no** `errors` key — a fully legal response under
-//! `schema.graphql`. Before the fix every one of these failed the whole query
-//! with `Err(Decode)`; now each returns `Ok` and exposes the null as `None`
-//! rather than eliding it.
+//! Each test mounts a wiremock endpoint returning a `null` element in exactly
+//! one of those positions, with **no** `errors` key. That response breaks the
+//! schema, so the SDK must fail it with `Err(Decode)` instead of passing the
+//! null through or eliding it. The two lists that are themselves nullable
+//! (`EventOutput.eventData`, `ActionOutput.actionData`) still decode a whole-list
+//! `null` to `None`.
 
 use std::time::Duration;
 
 use mina_archive_sdk::{
-    ActionFilterOptionsInput, ArchiveClient, ClientConfig, EventFilterOptionsInput,
+    ActionFilterOptionsInput, ArchiveClient, ClientConfig, Error, EventFilterOptionsInput,
     GetBlocksOptions,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Start a server that answers every POST with `body`.
-async fn server_returning(body: serde_json::Value) -> (MockServer, ArchiveClient) {
+async fn server_returning(body: Value) -> (MockServer, ArchiveClient) {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/"))
@@ -33,126 +34,39 @@ async fn server_returning(body: serde_json::Value) -> (MockServer, ArchiveClient
     (server, client)
 }
 
-/// A1 — `events: [EventOutput]!`, schema.graphql:239.
-#[tokio::test]
-async fn null_event_element_decodes_to_none() {
-    let (_server, client) = server_returning(json!({ "data": { "events": [null] } })).await;
-
-    let events = client
-        .get_events(EventFilterOptionsInput::for_address("B62q..."))
-        .await
-        .expect("a null element is legal and must decode");
-
-    assert_eq!(events.len(), 1, "the null is kept, not elided");
-    assert!(events[0].is_none());
+fn assert_decode_error<T: std::fmt::Debug>(result: mina_archive_sdk::Result<T>) {
+    match result {
+        Err(Error::Decode { .. }) => {}
+        other => panic!("a null element must be a decode error, got {other:?}"),
+    }
 }
 
-/// A2 — `actions: [ActionOutput]!`, schema.graphql:240.
-#[tokio::test]
-async fn null_action_element_decodes_to_none() {
-    let (_server, client) = server_returning(json!({ "data": { "actions": [null] } })).await;
-
-    let actions = client
-        .get_actions(ActionFilterOptionsInput::for_address("B62q..."))
-        .await
-        .expect("a null element is legal and must decode");
-
-    assert_eq!(actions.len(), 1);
-    assert!(actions[0].is_none());
+fn transaction_info(ids: Value) -> Value {
+    json!({
+        "status": "applied",
+        "hash": "h",
+        "memo": "m",
+        "authorizationKind": "Proof",
+        "sequenceNumber": 0,
+        "zkappAccountUpdateIds": ids
+    })
 }
 
-/// A3 — `blocks: [Block]!`, schema.graphql:245.
-#[tokio::test]
-async fn null_block_element_decodes_to_none() {
-    let (_server, client) = server_returning(json!({
-        "data": {
-            "blocks": [
-                null,
-                {
-                    "blockHeight": 42,
-                    "creator": "B62q",
-                    "stateHash": "sh",
-                    "parentHash": "ph",
-                    "dateTime": "2023-08-14T22:30:01.000Z",
-                    "transactions": {
-                        "coinbase": "720000000000",
-                        "userCommands": [],
-                        "zkappCommands": [],
-                        "feeTransfer": []
-                    }
-                }
-            ]
-        }
-    }))
-    .await;
-
-    let blocks = client
-        .get_blocks(GetBlocksOptions::default())
-        .await
-        .expect("a null element is legal and must decode");
-
-    assert_eq!(blocks.len(), 2);
-    assert!(blocks[0].is_none(), "a null block is None, not height 0");
-    assert_eq!(
-        blocks[1]
-            .as_ref()
-            .expect("second element is present")
-            .block_height,
-        42
-    );
+fn event_data(data: Value, info: Value) -> Value {
+    json!({ "accountUpdateId": "1", "transactionInfo": info, "data": data })
 }
 
-/// A4 — `EventData.data: [String]!`, schema.graphql:85.
-#[tokio::test]
-async fn null_event_data_member_decodes_to_none() {
-    let (_server, client) = server_returning(json!({
-        "data": {
-            "events": [{
-                "blockInfo": null,
-                "eventData": [{
-                    "accountUpdateId": "1",
-                    "transactionInfo": null,
-                    "data": ["0x1", null, ""]
-                }]
-            }]
-        }
-    }))
-    .await;
-
-    let events = client
-        .get_events(EventFilterOptionsInput::for_address("B62q..."))
-        .await
-        .expect("a null data member is legal and must decode");
-
-    let event = events[0].as_ref().expect("element is present");
-    let data = &event.event_data.as_ref().expect("eventData present")[0]
-        .as_ref()
-        .expect("eventData element present")
-        .data;
-
-    assert_eq!(data.len(), 3);
-    assert_eq!(data[0].as_deref(), Some("0x1"));
-    assert_eq!(data[1], None, "a null member stays null");
-    assert_eq!(
-        data[2].as_deref(),
-        Some(""),
-        "an empty string stays distinguishable from null"
-    );
+fn events_body(event_data: Value) -> Value {
+    json!({ "data": { "events": [{ "blockInfo": null, "eventData": event_data }] } })
 }
 
-/// A5 — `ActionData.data: [String]!`, schema.graphql:91.
-#[tokio::test]
-async fn null_action_data_member_decodes_to_none() {
-    let (_server, client) = server_returning(json!({
+fn actions_body(action_data: Value) -> Value {
+    json!({
         "data": {
             "actions": [{
                 "blockInfo": null,
                 "transactionInfo": null,
-                "actionData": [{
-                    "accountUpdateId": "1",
-                    "transactionInfo": null,
-                    "data": [null]
-                }],
+                "actionData": action_data,
                 "actionState": {
                     "actionStateOne": null,
                     "actionStateTwo": null,
@@ -162,104 +76,102 @@ async fn null_action_data_member_decodes_to_none() {
                 }
             }]
         }
-    }))
-    .await;
-
-    let actions = client
-        .get_actions(ActionFilterOptionsInput::for_address("B62q..."))
-        .await
-        .expect("a null data member is legal and must decode");
-
-    let action = actions[0].as_ref().expect("element is present");
-    let data = &action.action_data.as_ref().expect("actionData present")[0]
-        .as_ref()
-        .expect("actionData element present")
-        .data;
-
-    assert_eq!(data, &vec![None]);
+    })
 }
 
-/// A6 — `TransactionInfo.zkappAccountUpdateIds: [Int]!`, schema.graphql:117.
-#[tokio::test]
-async fn null_zkapp_account_update_id_decodes_to_none() {
-    let (_server, client) = server_returning(json!({
-        "data": {
-            "events": [{
-                "blockInfo": null,
-                "eventData": [{
-                    "accountUpdateId": "1",
-                    "transactionInfo": {
-                        "status": "applied",
-                        "hash": "h",
-                        "memo": "m",
-                        "authorizationKind": "Proof",
-                        "sequenceNumber": 0,
-                        "zkappAccountUpdateIds": [42, null]
-                    },
-                    "data": ["0x1"]
-                }]
-            }]
-        }
-    }))
-    .await;
-
-    let events = client
+async fn get_events(body: Value) -> mina_archive_sdk::Result<Vec<mina_archive_sdk::EventOutput>> {
+    let (_server, client) = server_returning(body).await;
+    client
         .get_events(EventFilterOptionsInput::for_address("B62q..."))
         .await
-        .expect("a null id member is legal and must decode");
+}
 
-    let event = events[0].as_ref().expect("element is present");
-    let info = event.event_data.as_ref().expect("eventData present")[0]
-        .as_ref()
-        .expect("eventData element present")
+async fn get_actions(body: Value) -> mina_archive_sdk::Result<Vec<mina_archive_sdk::ActionOutput>> {
+    let (_server, client) = server_returning(body).await;
+    client
+        .get_actions(ActionFilterOptionsInput::for_address("B62q..."))
+        .await
+}
+
+/// `Query.events: [EventOutput!]!`
+#[tokio::test]
+async fn null_event_element_is_a_decode_error() {
+    assert_decode_error(get_events(json!({ "data": { "events": [null] } })).await);
+}
+
+/// `Query.actions: [ActionOutput!]!`
+#[tokio::test]
+async fn null_action_element_is_a_decode_error() {
+    assert_decode_error(get_actions(json!({ "data": { "actions": [null] } })).await);
+}
+
+/// `Query.blocks: [Block!]!`
+#[tokio::test]
+async fn null_block_element_is_a_decode_error() {
+    let (_server, client) = server_returning(json!({ "data": { "blocks": [null] } })).await;
+    assert_decode_error(client.get_blocks(GetBlocksOptions::default()).await);
+}
+
+/// `EventOutput.eventData: [EventData!]`
+#[tokio::test]
+async fn null_event_data_element_is_a_decode_error() {
+    assert_decode_error(get_events(events_body(json!([null]))).await);
+}
+
+/// `ActionOutput.actionData: [ActionData!]`
+#[tokio::test]
+async fn null_action_data_element_is_a_decode_error() {
+    assert_decode_error(get_actions(actions_body(json!([null]))).await);
+}
+
+/// `EventData.data: [String!]!`
+#[tokio::test]
+async fn null_event_data_member_is_a_decode_error() {
+    let body = events_body(json!([event_data(json!(["0x1", null]), Value::Null)]));
+    assert_decode_error(get_events(body).await);
+}
+
+/// `ActionData.data: [String!]!`
+#[tokio::test]
+async fn null_action_data_member_is_a_decode_error() {
+    let body = actions_body(json!([event_data(json!([null]), Value::Null)]));
+    assert_decode_error(get_actions(body).await);
+}
+
+/// `TransactionInfo.zkappAccountUpdateIds: [Int!]!`
+#[tokio::test]
+async fn null_zkapp_account_update_id_is_a_decode_error() {
+    let info = transaction_info(json!([42, null]));
+    let body = events_body(json!([event_data(json!(["0x1"]), info)]));
+    assert_decode_error(get_events(body).await);
+}
+
+/// The outer `eventData` and `actionData` lists stay nullable in schema 2.0.
+#[tokio::test]
+async fn null_event_data_and_action_data_lists_decode_to_none() {
+    let events = get_events(events_body(Value::Null))
+        .await
+        .expect("a null eventData list is legal");
+    assert!(events[0].event_data.is_none());
+
+    let actions = get_actions(actions_body(Value::Null))
+        .await
+        .expect("a null actionData list is legal");
+    assert!(actions[0].action_data.is_none());
+}
+
+/// A fully populated response decodes, and an empty string member stays `""`.
+#[tokio::test]
+async fn non_null_elements_decode() {
+    let info = transaction_info(json!([42, 7]));
+    let body = events_body(json!([event_data(json!(["0x1", ""]), info)]));
+    let events = get_events(body).await.expect("a legal response decodes");
+
+    let data = &events[0].event_data.as_ref().expect("eventData present")[0];
+    assert_eq!(data.data, vec!["0x1".to_string(), String::new()]);
+    let info = data
         .transaction_info
         .as_ref()
         .expect("transactionInfo present");
-
-    assert_eq!(info.zkapp_account_update_ids, vec![Some(42), None]);
-}
-
-/// The whole SDL-legal response from the issue, in one call: nulls at every
-/// level at once, which is how a real server would serve it.
-#[tokio::test]
-async fn every_nullable_position_at_once() {
-    let (_server, client) = server_returning(json!({
-        "data": {
-            "events": [
-                null,
-                {
-                    "blockInfo": null,
-                    "eventData": [
-                        null,
-                        {
-                            "accountUpdateId": "1",
-                            "transactionInfo": {
-                                "status": "applied",
-                                "hash": "h",
-                                "memo": "m",
-                                "authorizationKind": "Proof",
-                                "sequenceNumber": 0,
-                                "zkappAccountUpdateIds": [42, null]
-                            },
-                            "data": ["0x1", null]
-                        }
-                    ]
-                }
-            ]
-        }
-    }))
-    .await;
-
-    let events = client
-        .get_events(EventFilterOptionsInput::for_address("B62q"))
-        .await
-        .expect("the response from issue #6 must decode");
-
-    assert_eq!(events.len(), 2);
-    assert!(events[0].is_none());
-
-    let event = events[1].as_ref().expect("second element is present");
-    let event_data = event.event_data.as_ref().expect("eventData present");
-    assert_eq!(event_data.len(), 2);
-    assert!(event_data[0].is_none());
+    assert_eq!(info.zkapp_account_update_ids, vec![42, 7]);
 }

@@ -17,10 +17,7 @@ async fn main() -> mina_archive_sdk::Result<()> {
         .await?;
 
     println!("got {} action group(s)", actions.len());
-    // `actions` is `[ActionOutput]!` in the SDL: the list is always present, but
-    // any element may be null, so guard each one. `.flatten()` drops the nulls;
-    // match on the Option instead if you need to see them.
-    for group in actions.into_iter().flatten().take(5) {
+    for group in actions.into_iter().take(5) {
         let height = group
             .block_info
             .map(|b| b.height.to_string())
