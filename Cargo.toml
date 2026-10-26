@@ -1,6 +1,6 @@
 [package]
 name = "mina-archive-sdk"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 # Verified in CI: the crate and its locked dependency graph build and test on
 # exactly this toolchain. encoding_rs and the icu_* crates set the floor.

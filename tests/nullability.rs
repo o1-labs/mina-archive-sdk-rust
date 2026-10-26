@@ -1,4 +1,5 @@
-//! The eight list positions schema 2.0 declares with non-null elements.
+//! The nine list positions schema 2.x declares with non-null elements: the
+//! eight from schema 2.0 and `userCommands` from schema 2.1.
 //!
 //! Each test mounts a wiremock endpoint returning a `null` element in exactly
 //! one of those positions, with **no** `errors` key. That response breaks the
@@ -11,7 +12,7 @@ use std::time::Duration;
 
 use mina_archive_sdk::{
     ActionFilterOptionsInput, ArchiveClient, ClientConfig, Error, EventFilterOptionsInput,
-    GetBlocksOptions,
+    GetBlocksOptions, UserCommandFilterInput,
 };
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
@@ -110,6 +111,17 @@ async fn null_action_element_is_a_decode_error() {
 async fn null_block_element_is_a_decode_error() {
     let (_server, client) = server_returning(json!({ "data": { "blocks": [null] } })).await;
     assert_decode_error(client.get_blocks(GetBlocksOptions::default()).await);
+}
+
+/// `userCommands: [UserCommandOutput!]!` (schema 2.1)
+#[tokio::test]
+async fn null_user_command_element_is_a_decode_error() {
+    let (_server, client) = server_returning(json!({ "data": { "userCommands": [null] } })).await;
+    assert_decode_error(
+        client
+            .get_user_commands(UserCommandFilterInput::new("B62q", 1, 2))
+            .await,
+    );
 }
 
 /// `EventOutput.eventData: [EventData!]`

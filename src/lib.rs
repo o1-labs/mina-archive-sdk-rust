@@ -3,7 +3,7 @@
 //!
 //! Companion to the daemon-targeting [`mina-sdk`](https://crates.io/crates/mina-sdk)
 //! crate. This crate targets the separate **archive** endpoint — events,
-//! actions, blocks, network state.
+//! actions, blocks, network state, verification-key updates and user commands.
 //!
 //! # Quick start
 //!
@@ -97,7 +97,7 @@ mod types;
 /// major equals the `SCHEMA_VERSION` major. A server with the same major is
 /// compatible; a higher server minor only adds features this crate may not
 /// wrap yet.
-pub const SCHEMA_VERSION: &str = "2.0";
+pub const SCHEMA_VERSION: &str = "2.1";
 
 /// The README's code fences, compiled as doctests.
 ///
@@ -118,6 +118,6 @@ pub use types::{
     ActionData, ActionFilterOptionsInput, ActionOutput, ActionStates, Block, BlockInfo,
     BlockQueryInput, BlockSortBy, BlockStatusFilter, BlockTransactions, EventData,
     EventFilterOptionsInput, EventOutput, FeeTransfer, MaxBlockHeightInfo, NetworkStateOutput,
-    TransactionInfo, UserCommand, VerificationKeyUpdate, VerificationKeyUpdateFilterInput,
-    ZkAppCommand,
+    TransactionInfo, UserCommand, UserCommandFilterInput, UserCommandOutput, VerificationKeyUpdate,
+    VerificationKeyUpdateFilterInput, ZkAppCommand,
 };

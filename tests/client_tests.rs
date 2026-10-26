@@ -5,7 +5,7 @@ use std::time::Duration;
 use mina_archive_sdk::{
     codes, ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy,
     BlockStatusFilter, ClientConfig, Error, EventFilterOptionsInput, GetBlocksOptions,
-    VerificationKeyUpdateFilterInput,
+    UserCommandFilterInput, VerificationKeyUpdateFilterInput,
 };
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -209,6 +209,73 @@ async fn verification_key_filter_serializes_required_range() {
 
     // `status` is the only optional member; it disappears when unset.
     let bare = serde_json::to_value(VerificationKeyUpdateFilterInput::new("vk", 1, 2)).unwrap();
+    assert!(bare.get("status").is_none());
+}
+
+#[tokio::test]
+async fn get_user_commands_happy_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": {
+                "userCommands": [{
+                    "blockInfo": {
+                        "height": 100,
+                        "stateHash": "sh",
+                        "parentHash": "ph",
+                        "ledgerHash": "lh",
+                        "chainStatus": "canonical",
+                        "timestamp": "0",
+                        "globalSlotSinceHardfork": 0,
+                        "globalSlotSinceGenesis": 0,
+                        "distanceFromMaxBlockHeight": 1,
+                    },
+                    "sequenceNumber": 3,
+                    "hash": "5Jtv7W41Kj1SKvxhBM53NfFyTNgnn3nxcwnnBsEpDHSPKaSujHa2",
+                    "kind": "payment",
+                    "feePayer": "B62qtest",
+                    "from": "B62qtest",
+                    "to": "B62qreceiver",
+                    "amount": "1000000000",
+                    "fee": "250000000",
+                    "memo": "E4YM2vTHhWEg66xpj52JErHUBU4pZ1yageL4TVDDpTTSsv8mK6YaH",
+                    "nonce": 7,
+                    "status": "applied",
+                    "failureReason": null,
+                }],
+            },
+        })))
+        .mount(&server)
+        .await;
+
+    let client = fast_client(&server.uri());
+    let commands = client
+        .get_user_commands(UserCommandFilterInput::new("B62qtest", 1, 1000))
+        .await
+        .unwrap();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].block_info.height, 100);
+    assert_eq!(commands[0].sequence_number, 3);
+    assert_eq!(commands[0].kind, "payment");
+    assert_eq!(commands[0].fee_payer, "B62qtest");
+    assert_eq!(commands[0].amount, "1000000000");
+    assert_eq!(commands[0].nonce, 7);
+    assert_eq!(commands[0].failure_reason, None);
+}
+
+#[tokio::test]
+async fn user_command_filter_serializes_required_range() {
+    let input =
+        UserCommandFilterInput::new("B62qtest", 10, 20).status(BlockStatusFilter::Canonical);
+    let json = serde_json::to_value(&input).unwrap();
+    assert_eq!(json["address"], "B62qtest");
+    assert_eq!(json["from"], 10);
+    assert_eq!(json["to"], 20);
+    assert_eq!(json["status"], "CANONICAL");
+
+    // `status` is the only optional member; it disappears when unset.
+    let bare = serde_json::to_value(UserCommandFilterInput::new("B62qtest", 1, 2)).unwrap();
     assert!(bare.get("status").is_none());
 }
 

@@ -74,6 +74,8 @@ jobs:
         env:
           PG_CONN: postgres://postgres:postgres@localhost:5432/archive_test
           PORT: '8080'
+          # Off by default upstream; the user_commands integration test needs it.
+          ENABLE_USER_COMMANDS_QUERY: 'true'
         run: |
           npm ci
           npm run build
