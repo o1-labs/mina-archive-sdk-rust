@@ -187,6 +187,51 @@ impl VerificationKeyUpdateFilterInput {
     }
 }
 
+/// Filter for `userCommands`.
+///
+/// Finds the user commands (payments and delegations) of one account. A
+/// command matches when the account is its fee payer, its source or its
+/// receiver.
+///
+/// The block range is required: the server bounds the span by its configured
+/// `BLOCK_RANGE_SIZE`, and rejects a range that holds more than its
+/// `USER_COMMAND_LIMIT` commands for the account. `from` is inclusive and `to`
+/// is exclusive.
+///
+/// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
+/// A height computed from a `u64` now fails to compile instead of coming back
+/// as a runtime GraphQL validation error. Output heights stay `i64` — widening
+/// an output is safe and the server already sends values as `Int`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserCommandFilterInput {
+    /// Public key of the account, matched as fee payer, source or receiver.
+    pub address: String,
+    /// Inclusive lower block-height bound. `Int` is 32-bit — see the type doc.
+    pub from: i32,
+    /// Exclusive upper block-height bound. `Int` is 32-bit — see the type doc.
+    pub to: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<BlockStatusFilter>,
+}
+
+impl UserCommandFilterInput {
+    /// Search `[from, to)` for the user commands that involve `address`.
+    pub fn new(address: impl Into<String>, from: i32, to: i32) -> Self {
+        Self {
+            address: address.into(),
+            from,
+            to,
+            status: None,
+        }
+    }
+
+    pub fn status(mut self, v: BlockStatusFilter) -> Self {
+        self.status = Some(v);
+        self
+    }
+}
+
 /// Filter blocks by height, date, or canonical status.
 ///
 /// GraphQL `Int` is signed **32-bit**, so the block-height bounds are `i32`.
@@ -378,6 +423,34 @@ pub struct VerificationKeyUpdate {
     pub verification_key_hash: String,
     pub block_info: BlockInfo,
     pub transaction_info: TransactionInfo,
+}
+
+/// A payment or a stake delegation that involves an account, with the block
+/// that carries it.
+///
+/// A command that sits in several blocks of the result, such as two competing
+/// pending blocks, is returned once for each block.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct UserCommandOutput {
+    pub block_info: BlockInfo,
+    /// Position of the command in its block.
+    pub sequence_number: i64,
+    pub hash: String,
+    /// `payment` or `delegation`.
+    pub kind: String,
+    pub fee_payer: String,
+    pub from: String,
+    pub to: String,
+    /// Amount in nanomina. `"0"` for a delegation.
+    pub amount: String,
+    pub fee: String,
+    pub memo: String,
+    pub nonce: i64,
+    /// `applied` or `failed`.
+    pub status: String,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

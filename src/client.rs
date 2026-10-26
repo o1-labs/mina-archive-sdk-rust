@@ -473,6 +473,31 @@ impl ArchiveClient {
             "get_verification_key_updates",
         )
     }
+
+    /// Find the user commands (payments and delegations) of one account.
+    ///
+    /// A command is returned when the account is its fee payer, its source or
+    /// its receiver. The block range is required: the server caps its width by
+    /// `BLOCK_RANGE_SIZE` and rejects a range that holds more than
+    /// `USER_COMMAND_LIMIT` commands for the account, so walk a wide history in
+    /// pages rather than in one call.
+    ///
+    /// The query is off unless the server sets
+    /// `ENABLE_USER_COMMANDS_QUERY=true`. A stock server answers
+    /// [`Error::Graphql`] with `Cannot query field "userCommands"`.
+    pub async fn get_user_commands(
+        &self,
+        input: UserCommandFilterInput,
+    ) -> Result<Vec<UserCommandOutput>> {
+        let data = self
+            .execute_query(
+                queries::USER_COMMANDS_QUERY,
+                Some(json!({ "input": input })),
+                "get_user_commands",
+            )
+            .await?;
+        decode_field(&data, "userCommands", "get_user_commands")
+    }
 }
 
 /// Options for [`ArchiveClient::get_blocks`]. All fields are optional.
@@ -657,6 +682,21 @@ impl ArchiveClient {
             Some(json!({ "input": input })),
             "get_verification_key_updates",
             "verificationKeyUpdates",
+        )
+        .await
+    }
+
+    /// [`ArchiveClient::get_user_commands`], keeping partial data alongside
+    /// errors.
+    pub async fn get_user_commands_with_errors(
+        &self,
+        input: UserCommandFilterInput,
+    ) -> Result<Response<Vec<UserCommandOutput>>> {
+        self.typed_with_errors(
+            queries::USER_COMMANDS_QUERY,
+            Some(json!({ "input": input })),
+            "get_user_commands",
+            "userCommands",
         )
         .await
     }

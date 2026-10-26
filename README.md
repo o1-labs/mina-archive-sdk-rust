@@ -13,7 +13,7 @@ Companion to the daemon-targeting [`mina-sdk`](https://crates.io/crates/mina-sdk
 
 ```toml
 [dependencies]
-mina-archive-sdk = "2.0"
+mina-archive-sdk = "2.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -67,6 +67,7 @@ Each method on `ArchiveClient` maps 1:1 to a GraphQL query in the [Archive-Node-
 | `get_network_state()` | `NetworkStateOutput` | Archive's max canonical / pending block heights. |
 | `get_blocks(opts)` | `Vec<Block>` | Blocks filtered by height/date range and chain status. Transaction detail needs `ENABLE_BLOCK_TRANSACTION_DETAILS` on the server — see below. |
 | `get_verification_key_updates(input)` | `Vec<VerificationKeyUpdate>` | Applied account updates that set a given verification key, within a required block range. |
+| `get_user_commands(input)` | `Vec<UserCommandOutput>` | Payments and delegations that involve an account (as fee payer, source or receiver), within a required block range. Needs `ENABLE_USER_COMMANDS_QUERY` on the server. |
 | `query(gql)` | builder | Arbitrary GraphQL through the same retry path. |
 | `execute_query(gql, vars, name)` | `serde_json::Value` | Low-level escape hatch returning the raw `data` field. |
 
@@ -301,7 +302,7 @@ element silently.
 The crate exports the schema version it speaks:
 
 ```rust
-use mina_archive_sdk::SCHEMA_VERSION; // "2.0" — the Archive-Node-API schema major.minor
+use mina_archive_sdk::SCHEMA_VERSION; // "2.1" — the Archive-Node-API schema major.minor
 ```
 
 **The SDK major equals the server major.** The Archive-Node-API server, its
@@ -319,6 +320,14 @@ Within that major, the crate version is semver about the SDK's own surface:
 | **Major** | A breaking change — always together with the server and schema major. |
 | **Minor** | Additive: a new query, a new option, a new helper. |
 | **Patch** | Fixes, docs, dependencies. |
+
+### 2.1
+
+2.1.0 speaks schema `2.1`, which adds one query to 2.0. `get_user_commands`
+wraps it and needs `ENABLE_USER_COMMANDS_QUERY=true` on an Archive-Node-API
+2.1.0 server; a server without it answers `Error::Graphql` with
+`Cannot query field "userCommands"`. Every other method is unchanged and keeps
+working against a 2.0 server.
 
 ### Migrating from 1.x to 2.0
 

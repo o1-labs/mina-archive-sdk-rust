@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use mina_archive_sdk::{
     ActionFilterOptionsInput, ArchiveClient, BlockQueryInput, BlockSortBy, BlockStatusFilter,
-    ClientConfig, EventFilterOptionsInput, GetBlocksOptions, VerificationKeyUpdateFilterInput,
+    ClientConfig, EventFilterOptionsInput, GetBlocksOptions, UserCommandFilterInput,
+    VerificationKeyUpdateFilterInput,
 };
 
 const FIXTURE_ADDRESS: &str = "B62qiaEMrWiYdK7LcJ2ScdMyG8LzUxi7yaw17XvBD34on7UKfhAkRML";
@@ -18,6 +19,11 @@ const FIXTURE_ADDRESS: &str = "B62qiaEMrWiYdK7LcJ2ScdMyG8LzUxi7yaw17XvBD34on7UKf
 /// The single verification key in the upstream sample archive dump.
 const FIXTURE_VERIFICATION_KEY_HASH: &str =
     "330109536550383627416201330124291596191867681867265169258470531313815097966";
+
+/// Fee payer, source and receiver of all 61 `user_commands` rows in the
+/// upstream fixture (public key id 66), all in blocks below height 25.
+const FIXTURE_USER_COMMAND_ADDRESS: &str =
+    "B62qrCV2xfWipHVW7KvdKSqXVqbTJLs4oNGhuDp8Ag34vy57mN4pcEi";
 
 fn client() -> ArchiveClient {
     let uri = std::env::var("ARCHIVE_GRAPHQL_URI")
@@ -117,5 +123,33 @@ async fn verification_key_updates_against_fixture_key() {
         .unwrap();
     for update in &updates {
         assert_eq!(update.verification_key_hash, FIXTURE_VERIFICATION_KEY_HASH);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires a running Archive-Node-API server (ARCHIVE_GRAPHQL_URI)"]
+async fn user_commands_against_fixture_address() {
+    // Needs ENABLE_USER_COMMANDS_QUERY=true on the server; integration.yml
+    // sets it. Against a stock server this fails with `Cannot query field`.
+    let commands = client()
+        .get_user_commands(UserCommandFilterInput::new(
+            FIXTURE_USER_COMMAND_ADDRESS,
+            1,
+            1000,
+        ))
+        .await
+        .unwrap();
+    assert!(
+        !commands.is_empty(),
+        "the fixture holds 61 user commands for this address"
+    );
+    for command in &commands {
+        assert!(command.block_info.height > 0, "blockInfo.height > 0");
+        assert!(
+            command.fee_payer == FIXTURE_USER_COMMAND_ADDRESS
+                || command.from == FIXTURE_USER_COMMAND_ADDRESS
+                || command.to == FIXTURE_USER_COMMAND_ADDRESS,
+            "the address must be the fee payer, source or receiver: {command:?}"
+        );
     }
 }
