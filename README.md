@@ -344,6 +344,10 @@ wraps it and needs `ENABLE_USER_COMMANDS_QUERY=true` on an Archive-Node-API
 `Cannot query field "userCommands"`. Every other method is unchanged and keeps
 working against a 2.0 server.
 
+2.1.0 also adds the features `native-tls` (the default, as in 2.0) and
+`rustls-tls`, which choose the TLS of `https://` endpoints (see [TLS](#tls)).
+The default build is the same as in 2.0.
+
 ### Migrating from 1.x to 2.0
 
 2.0 speaks schema `2.0`. The return types of `get_events`, `get_actions` and
