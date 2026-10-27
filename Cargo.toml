@@ -17,13 +17,21 @@ categories = ["api-bindings", "cryptography::cryptocurrencies"]
 exclude = [".github/", "scripts/", "tests/integration_tests.rs"]
 
 [package.metadata.docs.rs]
-# The crate declares no [features], and no #[cfg(docsrs)] appears in src/, so
-# `all-features` and the `docsrs` cfg configured nothing. Kept only the
-# all-features flag, which stays correct if features are ever added.
+# No #[cfg(docsrs)] appears in src/, so only the all-features flag is set.
 all-features = true
 
+[features]
+default = ["native-tls"]
+# TLS for `https://` endpoints, from the system's OpenSSL (or the platform's
+# TLS library on macOS and Windows).
+native-tls = ["reqwest/default-tls"]
+# TLS from rustls with the Mozilla root certificates: no OpenSSL to build or
+# link. Use with `default-features = false`.
+rustls-tls = ["reqwest/rustls-tls"]
+
 [dependencies]
-reqwest = { version = "0.12", features = ["json"] }
+# reqwest's default features without its TLS: the features above choose it
+reqwest = { version = "0.12", default-features = false, features = ["json", "charset", "http2", "system-proxy"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"

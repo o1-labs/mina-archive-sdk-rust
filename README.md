@@ -17,6 +17,21 @@ mina-archive-sdk = "2.1"
 tokio = { version = "1", features = ["full"] }
 ```
 
+### TLS
+
+`https://` endpoints use the system's OpenSSL (feature `native-tls`, on by
+default). To build without OpenSSL, for example for a static binary or a
+package that must not depend on one `libssl` version, use rustls with the
+Mozilla root certificates:
+
+```toml
+[dependencies]
+mina-archive-sdk = { version = "2.1", default-features = false, features = ["rustls-tls"] }
+```
+
+Without either feature the client speaks only `http://`, which is enough for
+a local Archive Node API.
+
 Minimum supported Rust version: **1.88**, declared as `rust-version` in
 `Cargo.toml` and built in CI on exactly that toolchain, so a dependency bump
 cannot raise the real floor without failing the build.

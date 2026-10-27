@@ -28,6 +28,14 @@ jobs:
       # Doctests are what carry the documented endpoint URLs. `--lib --tests`
       # skips them, which is how a wrong URL survived in rustdoc examples (#7).
       - run: cargo test --doc
+      - run: cargo clippy --all-targets --no-default-features --features rustls-tls -- -D warnings
+      - run: cargo test --no-default-features --features rustls-tls --lib --tests
+      - name: rustls builds without OpenSSL
+        run: |
+          if cargo tree --no-default-features --features rustls-tls -i openssl-sys >/dev/null 2>&1; then
+            cargo tree --no-default-features --features rustls-tls -i openssl-sys
+            exit 1
+          fi
 
       # The README install snippet drifted to 0.0.1 while the crate was at
       # 1.0.1 (#14). Assert the crate still satisfies what the README tells
